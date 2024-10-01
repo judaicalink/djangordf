@@ -3,7 +3,7 @@ from setuptools import find_packages, setup
 setup(
     name='djangordf',
     packages=find_packages(include=['djangordf']),
-    version='0.1.0',
+    version='0.1.1',
     description='A RDF library for Django models',
     classifiers=[
         "Programming Language :: Python :: 3",
