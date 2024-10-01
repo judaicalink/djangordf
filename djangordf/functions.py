@@ -45,7 +45,7 @@ def export_model_to_rdf(model, dump_name):
 
     # Den Graphen als RDF-Turtle speichern
     dump_file_path = os.path.join(settings.BASE_DIR, f"{dump_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.ttl")
-    with open(dump_file_path, 'w') as f:
-        f.write(g.serialize(format='turtle').decode('utf-8'))
+    with open(dump_file_path, 'w', encoding='utf-8') as f:
+        f.write(g.serialize(format='turtle'))
 
     return dump_file_path
