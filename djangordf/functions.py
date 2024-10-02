@@ -5,8 +5,10 @@ import os
 from django.conf import settings
 
 
-def export_model_to_rdf(model, dump_name):
+def export_model_to_rdf(model, dump_name, **kwargs):
     # Namespace basierend auf dem Model
+    # get the namespace from kwargs or use the model name
+
     ns = Namespace(f"http://example.org/{model.__name__.lower()}/")
 
     # Erstellen eines Graphen
