@@ -6,9 +6,9 @@
 
 [![forthebadge made-with-python](http://ForTheBadge.com/images/badges/made-with-python.svg)](https://www.python.org/)
 
-[![PyPI download month](https://img.shields.io/pypi/dm/ansicolortags.svg)](https://pypi.org/project/djangordf/)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/djangordf)
 
-[![PyPI version fury.io](https://badge.fury.io/py/ansicolortags.svg)](https://pypi.org/project/djangordf/)
+![PyPI - Version](https://img.shields.io/pypi/v/djangordf)
 
 
 **Djangordf** is a powerful Django library designed to manage RDF (Resource Description Framework) data directly from Django models. It provides full **CRUD functionality** for RDF data, allowing developers to easily create, read, update, and delete RDF triples. The library also supports **ontology creation** and **automatic synchronization** with external triple stores, making it a perfect solution for building semantically enriched web applications.
