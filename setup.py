@@ -7,18 +7,23 @@ setup(
     description='A RDF library for Django models',
     classifiers=[
         "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",  # Deine Lizenz
+        "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
+        "Framework :: Django",
+        "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
     ],
-    python_requires=">=3.6",
+    python_requires=">=3.8",
     author='Benjamin Schnabel',
-    email='b.schnabel@hs-mannheim.de',
-    website='djangordf.readthedocs.org',
+    author_email='b.schnabel@hs-mannheim.de',
     long_description=open("README.md", "r").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/judaicalink/djangordf",
-    install_requires=[],
-    setup_requires=['pytest-runner'],
-    tests_require=['pytest==7.4.4'],
-    test_suite='tests',
+    project_urls={
+        "Documentation": "https://djangordf.readthedocs.org",
+        "Source": "https://github.com/judaicalink/djangordf",
+    },
+    install_requires=[
+        "Django>=3.2",
+        "rdflib>=6.0",
+    ],
 )
