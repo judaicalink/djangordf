@@ -26,7 +26,4 @@ setup(
         "Django>=3.2",
         "rdflib>=6.0",
     ],
-    setup_requires=['pytest-runner'],
-    tests_require=['pytest>=7.4'],
-    test_suite='tests',
 )
