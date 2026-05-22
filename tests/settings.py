@@ -24,3 +24,7 @@ DATABASES = {
 USE_TZ = True
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+DJANGORDF_BACKEND = {
+    "class": "djangordf.backends.memory.InMemoryBackend",
+}
