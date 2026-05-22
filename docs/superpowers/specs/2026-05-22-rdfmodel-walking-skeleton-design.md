@@ -143,7 +143,7 @@ class RDFModel(metaclass=RDFModelMeta):
 
 ```python
 class Vocabulary(RDFModel):
-    pref_label = LangStringProperty(many=True)
+    pref_label = LangStringProperty(many=True)kate
     broader = ObjectProperty("self", many=True)
 
     class Meta:
