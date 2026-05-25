@@ -4,7 +4,7 @@
 
 **Goal:** Land the abstract `TripleStoreBackend` interface, an `InMemoryBackend` implementation backed by rdflib, and a `get_backend()` factory that reads Django settings — closing GitHub issue #4.
 
-**Architecture:** A small `djangordf/backends/` package with `base.py` (ABC) and `memory.py` (rdflib `ConjunctiveGraph` wrapper). A separate `djangordf/conf.py` module owns the settings-to-backend factory so backends do not depend on Django themselves. Tests live under `tests/test_backends.py` and exercise the contract via the in-memory implementation.
+**Architecture:** A small `djangordf/backends/` package with `base.py` (ABC) and `memory.py` (rdflib `Dataset(default_union=True)` wrapper). A separate `djangordf/conf.py` module owns the settings-to-backend factory so backends do not depend on Django themselves. Tests live under `tests/test_backends.py` and exercise the contract via the in-memory implementation.
 
 **Tech Stack:** Python 3.10+, rdflib 7.x, Django 3.2+, pytest 9.x, pytest-django 4.x.
 
@@ -20,7 +20,7 @@
 |---|---|
 | `djangordf/backends/__init__.py` | Public re-exports: `TripleStoreBackend`, `InMemoryBackend` |
 | `djangordf/backends/base.py` | `TripleStoreBackend` abstract base class |
-| `djangordf/backends/memory.py` | `InMemoryBackend` (rdflib `ConjunctiveGraph` wrapper) |
+| `djangordf/backends/memory.py` | `InMemoryBackend` (rdflib `Dataset(default_union=True)` wrapper) |
 | `djangordf/conf.py` | `get_backend()` factory reading `settings.DJANGORDF_BACKEND` |
 | `djangordf/__init__.py` | Re-export `TripleStoreBackend`, `InMemoryBackend`, `get_backend` (modify) |
 | `tests/test_backends.py` | Unit tests for both interface and InMemoryBackend |
@@ -297,10 +297,10 @@ Expected: the new tests fail with `ModuleNotFoundError: No module named 'djangor
 Create `djangordf/backends/memory.py`:
 
 ```python
-"""In-memory triple-store backend using rdflib's ConjunctiveGraph."""
+"""In-memory triple-store backend using rdflib's Dataset."""
 from typing import Iterable, Optional
 
-from rdflib import ConjunctiveGraph, URIRef
+from rdflib import Dataset, URIRef
 from rdflib.graph import Graph
 from rdflib.query import Result
 
@@ -315,7 +315,7 @@ class InMemoryBackend(TripleStoreBackend):
     """
 
     def __init__(self) -> None:
-        self._store = ConjunctiveGraph()
+        self._store = Dataset(default_union=True)
 
     def query(self, sparql: str) -> Result | Graph:
         return self._store.query(sparql)
@@ -344,6 +344,8 @@ class InMemoryBackend(TripleStoreBackend):
 
     def _target(self, graph: Optional[URIRef]) -> Graph:
         if graph is None:
+            if hasattr(self._store, "default_graph"):
+                return self._store.default_graph
             return self._store.default_context
         return self._store.get_context(graph)
 ```
@@ -610,7 +612,7 @@ Lands the abstract `TripleStoreBackend` interface, the `InMemoryBackend` rdflib 
 ## Files
 
 - `djangordf/backends/base.py` — `TripleStoreBackend` abstract base
-- `djangordf/backends/memory.py` — `InMemoryBackend` (rdflib `ConjunctiveGraph`)
+- `djangordf/backends/memory.py` — `InMemoryBackend` (rdflib `Dataset(default_union=True)`)
 - `djangordf/conf.py` — `get_backend()` factory
 - `djangordf/__init__.py` — re-exports the new public API
 - `tests/test_backends.py` — interface and behaviour tests

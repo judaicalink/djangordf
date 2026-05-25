@@ -1,7 +1,7 @@
-"""In-memory triple-store backend using rdflib's ConjunctiveGraph."""
+"""In-memory triple-store backend using rdflib's Dataset."""
 from typing import Iterable, Optional, Union
 
-from rdflib import ConjunctiveGraph, URIRef
+from rdflib import Dataset, URIRef
 from rdflib.graph import Graph
 from rdflib.query import Result
 
@@ -16,7 +16,7 @@ class InMemoryBackend(TripleStoreBackend):
     """
 
     def __init__(self) -> None:
-        self._store = ConjunctiveGraph()
+        self._store = Dataset(default_union=True)
 
     def query(self, sparql: str) -> Union[Result, Graph]:
         return self._store.query(sparql)
@@ -45,5 +45,7 @@ class InMemoryBackend(TripleStoreBackend):
 
     def _target(self, graph: Optional[URIRef]) -> Graph:
         if graph is None:
+            if hasattr(self._store, "default_graph"):
+                return self._store.default_graph
             return self._store.default_context
         return self._store.get_context(graph)

@@ -1,4 +1,6 @@
 """Tests for djangordf.backends."""
+import warnings
+
 import pytest
 from rdflib import Literal, URIRef
 
@@ -66,6 +68,16 @@ def backend():
 def test_in_memory_backend_starts_empty(backend):
     result = backend.query("CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o }")
     assert len(result) == 0
+
+
+def test_in_memory_backend_constructs_without_rdflib_deprecation_warning():
+    from djangordf.backends.memory import InMemoryBackend
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        backend = InMemoryBackend()
+        backend.add([(EX_S, EX_P, Literal("v"))])
+        backend.clear()
 
 
 def test_add_then_construct_roundtrips_triples(backend):
