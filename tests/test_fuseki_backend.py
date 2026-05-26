@@ -3,7 +3,8 @@ from unittest import mock
 
 import pytest
 import requests
-from rdflib import URIRef
+from rdflib import Literal, URIRef
+from rdflib.namespace import XSD
 
 
 def _mock_response(status=200, text="", content=None, content_type="text/plain"):
@@ -180,3 +181,124 @@ def test_update_raises_on_http_error():
     with mock.patch.object(backend.session, "post", return_value=bad):
         with pytest.raises(requests.HTTPError):
             backend.update("CLEAR DEFAULT")
+
+
+# -- add / remove / clear ---------------------------------------------------
+
+
+def _capture_update(backend):
+    """Patch update() to record the SPARQL string it would have sent."""
+    captured = {}
+
+    def fake_update(sparql):
+        captured["sparql"] = sparql
+
+    backend.update = fake_update
+    return captured
+
+
+def test_add_default_graph_emits_insert_data():
+    from djangordf.backends.fuseki import FusekiBackend
+    backend = FusekiBackend(endpoint="http://example.org/sparql")
+    captured = _capture_update(backend)
+    backend.add(
+        [(
+            URIRef("http://example.org/s"),
+            URIRef("http://example.org/p"),
+            Literal("v"),
+        )]
+    )
+    sparql = captured["sparql"]
+    assert "INSERT DATA" in sparql
+    assert "<http://example.org/s>" in sparql
+    assert "<http://example.org/p>" in sparql
+    assert '"v"' in sparql
+    assert "GRAPH" not in sparql
+
+
+def test_add_named_graph_wraps_triples_in_graph_block():
+    from djangordf.backends.fuseki import FusekiBackend
+    backend = FusekiBackend(endpoint="http://example.org/sparql")
+    captured = _capture_update(backend)
+    g = URIRef("http://example.org/g")
+    backend.add(
+        [(
+            URIRef("http://example.org/s"),
+            URIRef("http://example.org/p"),
+            Literal("v"),
+        )],
+        graph=g,
+    )
+    sparql = captured["sparql"]
+    assert "INSERT DATA" in sparql
+    assert "GRAPH <http://example.org/g>" in sparql
+
+
+def test_add_serialises_typed_literals():
+    from djangordf.backends.fuseki import FusekiBackend
+    backend = FusekiBackend(endpoint="http://example.org/sparql")
+    captured = _capture_update(backend)
+    backend.add(
+        [(
+            URIRef("http://example.org/s"),
+            URIRef("http://example.org/p"),
+            Literal(42, datatype=XSD.integer),
+        )]
+    )
+    assert "42" in captured["sparql"]
+    assert str(XSD.integer) in captured["sparql"]
+
+
+def test_remove_with_full_triple_emits_delete_where():
+    from djangordf.backends.fuseki import FusekiBackend
+    backend = FusekiBackend(endpoint="http://example.org/sparql")
+    captured = _capture_update(backend)
+    backend.remove(
+        (
+            URIRef("http://example.org/s"),
+            URIRef("http://example.org/p"),
+            Literal("v"),
+        )
+    )
+    sparql = captured["sparql"]
+    assert sparql.startswith("DELETE WHERE")
+    assert "<http://example.org/s>" in sparql
+    assert "<http://example.org/p>" in sparql
+
+
+def test_remove_with_wildcards_uses_sparql_variables():
+    from djangordf.backends.fuseki import FusekiBackend
+    backend = FusekiBackend(endpoint="http://example.org/sparql")
+    captured = _capture_update(backend)
+    backend.remove((URIRef("http://example.org/s"), None, None))
+    sparql = captured["sparql"]
+    assert "<http://example.org/s>" in sparql
+    assert "?p" in sparql
+    assert "?o" in sparql
+
+
+def test_remove_in_named_graph_wraps_pattern_in_graph_block():
+    from djangordf.backends.fuseki import FusekiBackend
+    backend = FusekiBackend(endpoint="http://example.org/sparql")
+    captured = _capture_update(backend)
+    backend.remove(
+        (URIRef("http://example.org/s"), None, None),
+        graph=URIRef("http://example.org/g"),
+    )
+    assert "GRAPH <http://example.org/g>" in captured["sparql"]
+
+
+def test_clear_default_graph_emits_clear_default():
+    from djangordf.backends.fuseki import FusekiBackend
+    backend = FusekiBackend(endpoint="http://example.org/sparql")
+    captured = _capture_update(backend)
+    backend.clear()
+    assert captured["sparql"] == "CLEAR DEFAULT"
+
+
+def test_clear_named_graph_emits_clear_silent_graph():
+    from djangordf.backends.fuseki import FusekiBackend
+    backend = FusekiBackend(endpoint="http://example.org/sparql")
+    captured = _capture_update(backend)
+    backend.clear(graph=URIRef("http://example.org/g"))
+    assert captured["sparql"] == "CLEAR SILENT GRAPH <http://example.org/g>"

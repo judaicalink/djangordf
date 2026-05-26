@@ -57,13 +57,44 @@ class FusekiBackend(TripleStoreBackend):
         )
 
     def add(self, triples, graph=None):
-        raise NotImplementedError
+        body = "\n".join(self._format_triple(t) for t in triples)
+        if graph is not None:
+            sparql = (
+                f"INSERT DATA {{ GRAPH <{graph}> {{ {body} }} }}"
+            )
+        else:
+            sparql = f"INSERT DATA {{ {body} }}"
+        self.update(sparql)
 
     def remove(self, pattern, graph=None):
-        raise NotImplementedError
+        s, p, o = pattern
+        triple = (
+            f"{self._term_or_var(s, '?s')} "
+            f"{self._term_or_var(p, '?p')} "
+            f"{self._term_or_var(o, '?o')} ."
+        )
+        if graph is not None:
+            sparql = (
+                f"DELETE WHERE {{ GRAPH <{graph}> {{ {triple} }} }}"
+            )
+        else:
+            sparql = f"DELETE WHERE {{ {triple} }}"
+        self.update(sparql)
 
     def clear(self, graph=None):
-        raise NotImplementedError
+        if graph is None:
+            self.update("CLEAR DEFAULT")
+        else:
+            self.update(f"CLEAR SILENT GRAPH <{graph}>")
+
+    @staticmethod
+    def _format_triple(triple):
+        s, p, o = triple
+        return f"{s.n3()} {p.n3()} {o.n3()} ."
+
+    @staticmethod
+    def _term_or_var(term, variable):
+        return term.n3() if term is not None else variable
 
     def _post(self, url, body, content_type, accept):
         response = self.session.post(
