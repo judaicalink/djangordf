@@ -49,7 +49,12 @@ class FusekiBackend(TripleStoreBackend):
         return Result.parse(BytesIO(response.content), format="json")
 
     def update(self, sparql):
-        raise NotImplementedError
+        self._post(
+            f"{self.endpoint}/update",
+            sparql,
+            content_type="application/sparql-update",
+            accept="*/*",
+        )
 
     def add(self, triples, graph=None):
         raise NotImplementedError

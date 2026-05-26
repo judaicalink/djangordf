@@ -147,3 +147,36 @@ def test_query_raises_on_http_error():
     with mock.patch.object(backend.session, "post", return_value=bad):
         with pytest.raises(requests.HTTPError):
             backend.query("SELECT ?s WHERE { ?s ?p ?o }")
+
+
+# -- update() ---------------------------------------------------------------
+
+
+def test_update_posts_to_update_endpoint_with_sparql_update_content_type():
+    from djangordf.backends.fuseki import FusekiBackend
+    backend = FusekiBackend(endpoint="http://example.org/sparql")
+    sparql = (
+        'INSERT DATA { <http://example.org/s> <http://example.org/p> "v" }'
+    )
+    with mock.patch.object(
+        backend.session, "post",
+        return_value=_mock_response(),
+    ) as post:
+        backend.update(sparql)
+    post.assert_called_once()
+    args, kwargs = post.call_args
+    assert args[0] == "http://example.org/sparql/update"
+    assert kwargs["data"] == sparql
+    assert kwargs["headers"]["Content-Type"] == "application/sparql-update"
+
+
+def test_update_raises_on_http_error():
+    from djangordf.backends.fuseki import FusekiBackend
+    backend = FusekiBackend(endpoint="http://example.org/sparql")
+    bad = _mock_response(status=400, text="bad")
+    bad.raise_for_status = mock.Mock(
+        side_effect=requests.HTTPError("400")
+    )
+    with mock.patch.object(backend.session, "post", return_value=bad):
+        with pytest.raises(requests.HTTPError):
+            backend.update("CLEAR DEFAULT")
