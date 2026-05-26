@@ -1,7 +1,11 @@
 """SPARQL 1.1 HTTP triple-store backend for Apache Jena Fuseki and similar."""
+import re
+from io import BytesIO
 from typing import Optional
 
 import requests
+from rdflib import Graph
+from rdflib.query import Result
 
 from .base import TripleStoreBackend
 
@@ -12,6 +16,8 @@ class FusekiBackend(TripleStoreBackend):
     Compatible with Apache Jena Fuseki and any other store that implements
     the SPARQL 1.1 Protocol (Blazegraph, GraphDB, Stardog).
     """
+
+    _QUERY_FORMS = ("CONSTRUCT", "DESCRIBE", "SELECT", "ASK")
 
     def __init__(
         self,
@@ -25,7 +31,22 @@ class FusekiBackend(TripleStoreBackend):
             self.session.auth = (user, password)
 
     def query(self, sparql):
-        raise NotImplementedError
+        form = self._detect_query_form(sparql)
+        if form in ("CONSTRUCT", "DESCRIBE"):
+            accept = "text/turtle"
+        else:
+            accept = "application/sparql-results+json"
+        response = self._post(
+            f"{self.endpoint}/query",
+            sparql,
+            content_type="application/sparql-query",
+            accept=accept,
+        )
+        if form in ("CONSTRUCT", "DESCRIBE"):
+            graph = Graph()
+            graph.parse(data=response.text, format="turtle")
+            return graph
+        return Result.parse(BytesIO(response.content), format="json")
 
     def update(self, sparql):
         raise NotImplementedError
@@ -38,3 +59,25 @@ class FusekiBackend(TripleStoreBackend):
 
     def clear(self, graph=None):
         raise NotImplementedError
+
+    def _post(self, url, body, content_type, accept):
+        response = self.session.post(
+            url,
+            data=body,
+            headers={
+                "Content-Type": content_type,
+                "Accept": accept,
+            },
+        )
+        response.raise_for_status()
+        return response
+
+    @classmethod
+    def _detect_query_form(cls, sparql):
+        """Pick the first SPARQL query keyword that appears in the string,
+        ignoring SPARQL comments."""
+        cleaned = re.sub(r"#[^\n]*", "", sparql).upper()
+        for keyword in cls._QUERY_FORMS:
+            if re.search(rf"\b{keyword}\b", cleaned):
+                return keyword
+        raise ValueError("Cannot determine SPARQL query form")
