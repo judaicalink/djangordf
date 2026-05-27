@@ -25,5 +25,6 @@ setup(
     install_requires=[
         "Django>=3.2",
         "rdflib>=6.0",
+        "requests>=2.25",
     ],
 )
