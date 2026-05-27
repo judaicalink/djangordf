@@ -221,3 +221,15 @@ def test_save_writes_rdf_type_triple_into_configured_graph(settings):
     g = backend.query(sparql)
     from rdflib.namespace import RDF
     assert (URIRef(inst.iri), RDF.type, SKOS.Concept) in g
+
+
+def test_rdfmodel_is_importable_from_package_root():
+    from djangordf import RDFModel as TopLevelModel
+    from djangordf.models import RDFModel as ModuleModel
+    assert TopLevelModel is ModuleModel
+
+
+def test_property_is_importable_from_package_root():
+    from djangordf import Property as TopLevelProperty
+    from djangordf.properties import Property as ModuleProperty
+    assert TopLevelProperty is ModuleProperty
