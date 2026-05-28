@@ -42,3 +42,94 @@ def test_property_contribute_to_class_accepts_owner_class():
     p.contribute_to_class("title", owner_class=object)
     assert p.attr_name == "title"
     assert p.owner_class is object
+
+
+# -- DataProperty -----------------------------------------------------------
+
+
+def test_data_property_scalar_to_rdf_emits_typed_literal():
+    from rdflib import Literal, URIRef
+    from rdflib.namespace import XSD
+    from djangordf.properties import DataProperty
+
+    prop = DataProperty(
+        predicate=URIRef("http://example.org/count"),
+        datatype=XSD.integer,
+    )
+    triples = prop.to_rdf(URIRef("http://example.org/s"), 42)
+    assert triples == [
+        (
+            URIRef("http://example.org/s"),
+            URIRef("http://example.org/count"),
+            Literal(42, datatype=XSD.integer),
+        )
+    ]
+
+
+def test_data_property_scalar_to_rdf_skips_none():
+    from rdflib import URIRef
+    from rdflib.namespace import XSD
+    from djangordf.properties import DataProperty
+
+    prop = DataProperty(
+        predicate=URIRef("http://example.org/count"),
+        datatype=XSD.integer,
+    )
+    assert prop.to_rdf(URIRef("http://example.org/s"), None) == []
+
+
+def test_data_property_many_to_rdf_emits_one_triple_per_value():
+    from rdflib import URIRef
+    from rdflib.namespace import XSD
+    from djangordf.properties import DataProperty
+
+    prop = DataProperty(
+        predicate=URIRef("http://example.org/n"),
+        datatype=XSD.integer,
+        many=True,
+    )
+    triples = prop.to_rdf(URIRef("http://example.org/s"), [1, 2, 3])
+    assert len(triples) == 3
+    objects = sorted(int(t[2]) for t in triples)
+    assert objects == [1, 2, 3]
+
+
+def test_data_property_scalar_from_rdf_returns_python_value():
+    from rdflib import Graph, Literal, URIRef
+    from rdflib.namespace import XSD
+    from djangordf.properties import DataProperty
+
+    g = Graph()
+    s = URIRef("http://example.org/s")
+    p = URIRef("http://example.org/count")
+    g.add((s, p, Literal(42, datatype=XSD.integer)))
+
+    prop = DataProperty(predicate=p, datatype=XSD.integer)
+    assert prop.from_rdf(g, s) == 42
+
+
+def test_data_property_many_from_rdf_returns_list_of_values():
+    from rdflib import Graph, Literal, URIRef
+    from rdflib.namespace import XSD
+    from djangordf.properties import DataProperty
+
+    g = Graph()
+    s = URIRef("http://example.org/s")
+    p = URIRef("http://example.org/n")
+    for v in (1, 2, 3):
+        g.add((s, p, Literal(v, datatype=XSD.integer)))
+
+    prop = DataProperty(predicate=p, datatype=XSD.integer, many=True)
+    assert sorted(prop.from_rdf(g, s)) == [1, 2, 3]
+
+
+def test_data_property_scalar_from_rdf_returns_none_when_missing():
+    from rdflib import Graph, URIRef
+    from rdflib.namespace import XSD
+    from djangordf.properties import DataProperty
+
+    prop = DataProperty(
+        predicate=URIRef("http://example.org/p"),
+        datatype=XSD.integer,
+    )
+    assert prop.from_rdf(Graph(), URIRef("http://example.org/s")) is None

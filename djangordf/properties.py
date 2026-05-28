@@ -7,7 +7,7 @@ deserialisation to ``to_rdf`` / ``from_rdf`` per property.
 """
 from typing import Optional
 
-from rdflib import URIRef
+from rdflib import Literal, URIRef
 
 
 class Property:
@@ -61,3 +61,53 @@ class Property:
         (many).
         """
         return [] if self.many else None
+
+
+class DataProperty(Property):
+    """Typed-literal data property (xsd:string, xsd:integer, ...)."""
+
+    def __init__(
+        self,
+        predicate: Optional[URIRef] = None,
+        *,
+        datatype: Optional[URIRef] = None,
+        many: bool = False,
+        required: bool = False,
+        default=None,
+    ) -> None:
+        super().__init__(
+            predicate,
+            many=many,
+            required=required,
+            default=default,
+        )
+        self.datatype = (
+            URIRef(datatype) if datatype is not None else None
+        )
+
+    def to_rdf(self, subject, value):
+        if value is None:
+            return []
+        if self.many:
+            return [
+                (subject, self.predicate, Literal(v, datatype=self.datatype))
+                for v in value
+            ]
+        return [
+            (subject, self.predicate, Literal(value, datatype=self.datatype))
+        ]
+
+    def from_rdf(self, graph, subject):
+        objects = list(graph.objects(subject, self.predicate))
+        if self.many:
+            return [self._coerce(o) for o in objects]
+        if not objects:
+            return None
+        return self._coerce(objects[0])
+
+    @staticmethod
+    def _coerce(literal):
+        try:
+            return literal.toPython()
+        except Exception:
+            return str(literal)
