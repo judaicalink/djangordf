@@ -282,3 +282,57 @@ def test_new_property_types_are_importable_from_package_root():
     assert TopObj is ObjectProperty
     assert TopURI is URIProperty
     assert TopLangString is LangString
+
+
+# -- implicit SKOS predicate via metaclass ---------------------------------
+
+def test_metaclass_assigns_skos_pref_label_when_predicate_omitted():
+    from djangordf.models import RDFModel
+    from djangordf.properties import LangStringProperty
+
+    class TermPrefLabel(RDFModel):
+        pref_label = LangStringProperty()
+
+    assert TermPrefLabel._properties["pref_label"].predicate == SKOS.prefLabel
+
+
+def test_metaclass_assigns_skos_broader_for_objectproperty_self():
+    from djangordf.models import RDFModel
+    from djangordf.properties import ObjectProperty
+
+    class TermBroader(RDFModel):
+        broader = ObjectProperty("self")
+
+    assert TermBroader._properties["broader"].predicate == SKOS.broader
+
+
+def test_metaclass_keeps_explicit_predicate_over_skos_convention():
+    from djangordf.models import RDFModel
+    from djangordf.properties import LangStringProperty
+
+    custom = URIRef("http://example.org/custom-label")
+
+    class TermCustom(RDFModel):
+        pref_label = LangStringProperty(predicate=custom)
+
+    assert TermCustom._properties["pref_label"].predicate == custom
+
+
+def test_metaclass_leaves_unknown_attribute_predicate_as_none():
+    from djangordf.models import RDFModel
+    from djangordf.properties import Property
+
+    class TermUnknown(RDFModel):
+        weird_attr = Property()
+
+    assert TermUnknown._properties["weird_attr"].predicate is None
+
+
+def test_namespace_registry_is_importable_from_package_root():
+    from djangordf import NamespaceRegistry, registry
+    from djangordf.namespaces import (
+        NamespaceRegistry as NSR,
+        registry as r,
+    )
+    assert NamespaceRegistry is NSR
+    assert registry is r
