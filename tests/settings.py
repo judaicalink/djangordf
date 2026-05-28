@@ -28,3 +28,5 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 DJANGORDF_BACKEND = {
     "class": "djangordf.backends.memory.InMemoryBackend",
 }
+DJANGORDF_DEFAULT_NAMESPACE = "http://example.org/d/"
+DJANGORDF_DEFAULT_GRAPH = "http://example.org/g"
