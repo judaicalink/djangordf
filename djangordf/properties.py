@@ -1,17 +1,25 @@
 """Declarative property descriptors for RDFModel.
 
-Only the bare minimum that the metaclass needs to recognise a property
-declaration lives here. The full type system (DataProperty,
-LangStringProperty, ObjectProperty, URIProperty) is implemented in
-issue #7.
+Property type system (issue #7). The metaclass collects ``Property``
+instances at class creation, hands each one the owner class via
+``contribute_to_class``, and later delegates RDF serialisation /
+deserialisation to ``to_rdf`` / ``from_rdf`` per property.
 """
 from typing import Optional
 
-from rdflib import URIRef
+from rdflib import Literal, URIRef
+
+from .namespaces import LangString
 
 
 class Property:
-    """Base class for declarative property descriptors."""
+    """Base class for declarative property descriptors.
+
+    Subclasses override ``to_rdf`` and ``from_rdf`` to map Python values
+    to RDF terms and back. The base implementation is a no-op so simple
+    direct uses of ``Property`` keep working — useful for tests that
+    only need a predicate stub.
+    """
 
     def __init__(
         self,
@@ -26,11 +34,187 @@ class Property:
         self.required = required
         self._default = default
         self.attr_name: Optional[str] = None
+        self.owner_class = None
 
-    def contribute_to_class(self, attr_name: str) -> None:
+    def contribute_to_class(self, attr_name: str, owner_class=None) -> None:
         self.attr_name = attr_name
+        if owner_class is not None:
+            self.owner_class = owner_class
 
     def default(self):
         if self.many:
             return []
         return self._default
+
+    # -- RDF serialisation extension points ---------------------------------
+
+    def to_rdf(self, subject, value):
+        """Return the triples this property contributes for ``value``.
+
+        Default implementation: emit no triples. Concrete subclasses
+        override.
+        """
+        return []
+
+    def from_rdf(self, graph, subject):
+        """Read this property's value back out of a graph.
+
+        Default implementation returns ``None`` (scalar) or ``[]``
+        (many).
+        """
+        return [] if self.many else None
+
+
+class DataProperty(Property):
+    """Typed-literal data property (xsd:string, xsd:integer, ...)."""
+
+    def __init__(
+        self,
+        predicate: Optional[URIRef] = None,
+        *,
+        datatype: Optional[URIRef] = None,
+        many: bool = False,
+        required: bool = False,
+        default=None,
+    ) -> None:
+        super().__init__(
+            predicate,
+            many=many,
+            required=required,
+            default=default,
+        )
+        self.datatype = (
+            URIRef(datatype) if datatype is not None else None
+        )
+
+    def to_rdf(self, subject, value):
+        if value is None:
+            return []
+        if self.many:
+            return [
+                (subject, self.predicate, Literal(v, datatype=self.datatype))
+                for v in value
+            ]
+        return [
+            (subject, self.predicate, Literal(value, datatype=self.datatype))
+        ]
+
+    def from_rdf(self, graph, subject):
+        objects = list(graph.objects(subject, self.predicate))
+        if self.many:
+            return [self._coerce(o) for o in objects]
+        if not objects:
+            return None
+        return self._coerce(objects[0])
+
+    @staticmethod
+    def _coerce(literal):
+        try:
+            return literal.toPython()
+        except Exception:
+            return str(literal)
+
+
+class LangStringProperty(Property):
+    """Language-tagged string property mapping to ``rdf:langString``."""
+
+    def to_rdf(self, subject, value):
+        if value is None:
+            return []
+        if self.many:
+            return [
+                (subject, self.predicate, Literal(ls.value, lang=ls.lang))
+                for ls in value
+            ]
+        return [
+            (subject, self.predicate, Literal(value.value, lang=value.lang))
+        ]
+
+    def from_rdf(self, graph, subject):
+        objects = list(graph.objects(subject, self.predicate))
+        results = [
+            LangString(str(o), o.language)
+            for o in objects
+            if getattr(o, "language", None) is not None
+        ]
+        if self.many:
+            return results
+        return results[0] if results else None
+
+
+class URIProperty(Property):
+    """Raw-IRI property (no Python wrapper, just ``URIRef``)."""
+
+    def to_rdf(self, subject, value):
+        if value is None:
+            return []
+        if self.many:
+            return [
+                (subject, self.predicate, URIRef(v))
+                for v in value
+            ]
+        return [(subject, self.predicate, URIRef(value))]
+
+    def from_rdf(self, graph, subject):
+        objects = list(graph.objects(subject, self.predicate))
+        if self.many:
+            return [URIRef(o) for o in objects]
+        return URIRef(objects[0]) if objects else None
+
+
+class ObjectProperty(Property):
+    """Link between two RDFModel instances.
+
+    ``target`` may be the target class, the string ``"self"``, or the
+    name of a registered model class — the last two resolve lazily
+    through ``djangordf.models.get_registered_model`` the first time
+    ``target_class`` is accessed.
+    """
+
+    def __init__(
+        self,
+        target,
+        predicate: Optional[URIRef] = None,
+        *,
+        many: bool = False,
+        required: bool = False,
+        default=None,
+    ) -> None:
+        super().__init__(
+            predicate,
+            many=many,
+            required=required,
+            default=default,
+        )
+        self._target = target
+
+    @property
+    def target_class(self):
+        if isinstance(self._target, type):
+            return self._target
+        if self._target == "self":
+            return self.owner_class
+        from .models import get_registered_model
+        return get_registered_model(self._target)
+
+    def to_rdf(self, subject, value):
+        if value is None:
+            return []
+        if self.many:
+            return [
+                (subject, self.predicate, self._iri_of(v))
+                for v in value
+            ]
+        return [(subject, self.predicate, self._iri_of(value))]
+
+    def from_rdf(self, graph, subject):
+        objects = list(graph.objects(subject, self.predicate))
+        if self.many:
+            return [URIRef(o) for o in objects]
+        return URIRef(objects[0]) if objects else None
+
+    @staticmethod
+    def _iri_of(value):
+        if isinstance(value, URIRef):
+            return value
+        return URIRef(value.iri)

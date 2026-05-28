@@ -223,6 +223,36 @@ def test_save_writes_rdf_type_triple_into_configured_graph(settings):
     assert (URIRef(inst.iri), RDF.type, SKOS.Concept) in g
 
 
+def test_to_triples_delegates_to_property_to_rdf():
+    """The RDFModel._to_triples path must dispatch through each
+    property's ``to_rdf``. Proven by installing a sentinel ``Property``
+    subclass whose ``to_rdf`` returns a recognisable marker; the
+    inline code path from #6 would have ignored the override and
+    serialised the value as a plain Literal."""
+    from djangordf.models import RDFModel
+    from djangordf.properties import Property
+
+    sentinel = URIRef("http://example.org/SENTINEL")
+
+    class SentinelProperty(Property):
+        def to_rdf(self, subject, value):
+            return [(subject, self.predicate, sentinel)]
+
+    class WithSentinel(RDFModel):
+        weird = SentinelProperty(
+            predicate=URIRef("http://example.org/w"),
+        )
+
+    inst = WithSentinel(iri="http://example.org/x")
+    inst.weird = "ignored-by-sentinel"
+    triples = inst._to_triples()
+    assert (
+        URIRef("http://example.org/x"),
+        URIRef("http://example.org/w"),
+        sentinel,
+    ) in triples
+
+
 def test_rdfmodel_is_importable_from_package_root():
     from djangordf import RDFModel as TopLevelModel
     from djangordf.models import RDFModel as ModuleModel
@@ -233,3 +263,22 @@ def test_property_is_importable_from_package_root():
     from djangordf import Property as TopLevelProperty
     from djangordf.properties import Property as ModuleProperty
     assert TopLevelProperty is ModuleProperty
+
+
+def test_new_property_types_are_importable_from_package_root():
+    from djangordf import (
+        DataProperty as TopData,
+        LangStringProperty as TopLang,
+        ObjectProperty as TopObj,
+        URIProperty as TopURI,
+        LangString as TopLangString,
+    )
+    from djangordf.properties import (
+        DataProperty, LangStringProperty, ObjectProperty, URIProperty,
+    )
+    from djangordf.namespaces import LangString
+    assert TopData is DataProperty
+    assert TopLang is LangStringProperty
+    assert TopObj is ObjectProperty
+    assert TopURI is URIProperty
+    assert TopLangString is LangString
