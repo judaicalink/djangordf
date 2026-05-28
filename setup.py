@@ -19,6 +19,7 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/judaicalink/djangordf",
     project_urls={
+        "Documentation": "https://djangordf.readthedocs.io/",
         "Source": "https://github.com/judaicalink/djangordf",
     },
     install_requires=[
