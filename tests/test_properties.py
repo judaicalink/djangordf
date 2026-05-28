@@ -204,3 +204,62 @@ def test_lang_string_property_scalar_from_rdf_missing_returns_none():
         predicate=URIRef("http://example.org/label")
     )
     assert prop.from_rdf(Graph(), URIRef("http://example.org/s")) is None
+
+
+# -- URIProperty ------------------------------------------------------------
+
+
+def test_uri_property_scalar_to_rdf_accepts_string_or_uriref():
+    from rdflib import URIRef
+    from djangordf.properties import URIProperty
+
+    prop = URIProperty(
+        predicate=URIRef("http://example.org/exactMatch")
+    )
+
+    from_str = prop.to_rdf(
+        URIRef("http://example.org/s"),
+        "http://example.org/o",
+    )
+    from_uri = prop.to_rdf(
+        URIRef("http://example.org/s"),
+        URIRef("http://example.org/o"),
+    )
+    assert from_str == from_uri
+    assert from_str[0][2] == URIRef("http://example.org/o")
+
+
+def test_uri_property_many_to_rdf():
+    from rdflib import URIRef
+    from djangordf.properties import URIProperty
+
+    prop = URIProperty(
+        predicate=URIRef("http://example.org/seeAlso"),
+        many=True,
+    )
+    triples = prop.to_rdf(
+        URIRef("http://example.org/s"),
+        [
+            "http://example.org/a",
+            URIRef("http://example.org/b"),
+        ],
+    )
+    assert len(triples) == 2
+    targets = {t[2] for t in triples}
+    assert URIRef("http://example.org/a") in targets
+    assert URIRef("http://example.org/b") in targets
+
+
+def test_uri_property_from_rdf_returns_uriref():
+    from rdflib import Graph, URIRef
+    from djangordf.properties import URIProperty
+
+    g = Graph()
+    s = URIRef("http://example.org/s")
+    p = URIRef("http://example.org/exactMatch")
+    g.add((s, p, URIRef("http://example.org/o")))
+
+    prop = URIProperty(predicate=p)
+    result = prop.from_rdf(g, s)
+    assert isinstance(result, URIRef)
+    assert str(result) == "http://example.org/o"

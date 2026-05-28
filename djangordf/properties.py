@@ -140,3 +140,23 @@ class LangStringProperty(Property):
         if self.many:
             return results
         return results[0] if results else None
+
+
+class URIProperty(Property):
+    """Raw-IRI property (no Python wrapper, just ``URIRef``)."""
+
+    def to_rdf(self, subject, value):
+        if value is None:
+            return []
+        if self.many:
+            return [
+                (subject, self.predicate, URIRef(v))
+                for v in value
+            ]
+        return [(subject, self.predicate, URIRef(value))]
+
+    def from_rdf(self, graph, subject):
+        objects = list(graph.objects(subject, self.predicate))
+        if self.many:
+            return [URIRef(o) for o in objects]
+        return URIRef(objects[0]) if objects else None
