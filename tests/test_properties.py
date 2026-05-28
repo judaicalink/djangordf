@@ -335,9 +335,10 @@ def test_object_property_many_to_rdf():
     }
 
 
-def test_object_property_from_rdf_returns_iris():
-    """In the walking-skeleton milestone the read side returns IRIs;
-    full instance hydration is the manager's job (issue #8)."""
+def test_object_property_from_rdf_returns_target_instance():
+    """``from_rdf`` materialises target-class instances carrying only
+    ``.iri``. Loading the rest of the target's state remains the
+    caller's job (``target_cls.objects.get(.iri)``)."""
     from rdflib import Graph, URIRef
     from djangordf.models import RDFModel
     from djangordf.properties import ObjectProperty
@@ -351,7 +352,9 @@ def test_object_property_from_rdf_returns_iris():
     g.add((s, p, URIRef("http://example.org/d/1")))
 
     prop = ObjectProperty(TargetD, predicate=p)
-    assert prop.from_rdf(g, s) == URIRef("http://example.org/d/1")
+    result = prop.from_rdf(g, s)
+    assert isinstance(result, TargetD)
+    assert result.iri == URIRef("http://example.org/d/1")
 
 
 def test_object_property_self_target_resolves_to_owner_class():
