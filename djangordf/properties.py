@@ -209,9 +209,12 @@ class ObjectProperty(Property):
 
     def from_rdf(self, graph, subject):
         objects = list(graph.objects(subject, self.predicate))
+        target_cls = self.target_class
         if self.many:
-            return [URIRef(o) for o in objects]
-        return URIRef(objects[0]) if objects else None
+            return [target_cls(iri=URIRef(o)) for o in objects]
+        if not objects:
+            return None
+        return target_cls(iri=URIRef(objects[0]))
 
     @staticmethod
     def _iri_of(value):
