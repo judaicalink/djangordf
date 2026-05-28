@@ -5,6 +5,58 @@ All notable changes to djangordf will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-05-28
+
+The RDFModel walking skeleton: a Django-style declarative layer over a
+SPARQL 1.1 triple store. Existing `export_model_to_rdf` continues to
+work unchanged. See the design spec at
+`docs/superpowers/specs/2026-05-22-rdfmodel-walking-skeleton-design.md`.
+
+### Added
+- `djangordf.backends`: `TripleStoreBackend` ABC, `InMemoryBackend`
+  (rdflib), and `FusekiBackend` (SPARQL 1.1 HTTP).
+- `djangordf.conf.get_backend()` reads `DJANGORDF_BACKEND` to construct
+  the configured backend.
+- `djangordf.models.RDFModel` + `RDFModelMeta` metaclass: `Meta`
+  resolution (`class_iri`, `namespace`, `graph_iri`), per-class
+  `objects` manager, IRI minting on save, process-wide model registry
+  for forward references.
+- Property type system: `DataProperty`, `LangStringProperty`,
+  `ObjectProperty`, `URIProperty`, and the `LangString` dataclass.
+  Each property owns its `to_rdf` / `from_rdf` mapping and supports
+  `many=False/True`.
+- `djangordf.namespaces.NamespaceRegistry` seeded with `rdf`, `rdfs`,
+  `owl`, `xsd`, `skos`, `dct`, `foaf`. New `DJANGORDF_NAMESPACES`
+  setting is read by `DjangordfConfig.ready()`.
+- `djangordf.skos.DEFAULT_PREDICATES`: implicit SKOS predicate
+  assignment in the metaclass for `pref_label`, `alt_label`,
+  `hidden_label`, `definition`, `note`, `broader`, `narrower`,
+  `related`, `exact_match`, `close_match`, `in_scheme`.
+- `djangordf.manager.RDFManager` full CRUD: `create`, `get`, `save`,
+  `delete`, `all`, `filter`. Lazy `RDFQuerySet` with `__iter__`,
+  `__len__`, `count`, `first`.
+- `DJANGORDF_DEFAULT_NAMESPACE` and `DJANGORDF_DEFAULT_GRAPH` settings
+  consumed by `_build_meta`.
+- `examples/walking_skeleton.py`: executable acceptance script from
+  spec §9.
+- Twelve named acceptance unit tests in `tests/test_rdfmodel.py`, plus
+  a subprocess test that runs the example end-to-end.
+
+### Changed
+- `InMemoryBackend.query` returns the underlying `rdflib.Graph` for
+  `CONSTRUCT` / `DESCRIBE` (was a `SPARQLResult` proxy with broken
+  attribute delegation) so it matches the abstract contract and
+  `FusekiBackend`'s behaviour.
+
+### Notes
+- Walking-skeleton design decisions worth knowing about: the metaclass
+  silently leaves `predicate=None` for properties whose attribute name
+  is not in `DEFAULT_PREDICATES` (no `ImproperlyConfigured`);
+  `ObjectProperty.from_rdf` returns target-class instances with only
+  `iri` set (no recursive hydration); `RDFQuerySet` materialises via
+  one `SELECT DISTINCT ?s` plus one `CONSTRUCT` per subject (N+1 by
+  design — collapse is a deferred optimisation).
+
 ## [0.2.0] - 2026-05-01
 
 ### Added
