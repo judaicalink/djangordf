@@ -133,3 +133,74 @@ def test_data_property_scalar_from_rdf_returns_none_when_missing():
         datatype=XSD.integer,
     )
     assert prop.from_rdf(Graph(), URIRef("http://example.org/s")) is None
+
+
+# -- LangStringProperty -----------------------------------------------------
+
+
+def test_lang_string_property_scalar_to_rdf():
+    from rdflib import Literal, URIRef
+    from djangordf.namespaces import LangString
+    from djangordf.properties import LangStringProperty
+
+    prop = LangStringProperty(
+        predicate=URIRef("http://example.org/label")
+    )
+    triples = prop.to_rdf(
+        URIRef("http://example.org/s"),
+        LangString("Buch", "de"),
+    )
+    assert triples == [
+        (
+            URIRef("http://example.org/s"),
+            URIRef("http://example.org/label"),
+            Literal("Buch", lang="de"),
+        )
+    ]
+
+
+def test_lang_string_property_many_to_rdf():
+    from rdflib import URIRef
+    from djangordf.namespaces import LangString
+    from djangordf.properties import LangStringProperty
+
+    prop = LangStringProperty(
+        predicate=URIRef("http://example.org/label"),
+        many=True,
+    )
+    triples = prop.to_rdf(
+        URIRef("http://example.org/s"),
+        [LangString("Buch", "de"), LangString("Book", "en")],
+    )
+    assert len(triples) == 2
+    langs = sorted(t[2].language for t in triples)
+    assert langs == ["de", "en"]
+
+
+def test_lang_string_property_from_rdf_round_trip():
+    from rdflib import Graph, Literal, URIRef
+    from djangordf.namespaces import LangString
+    from djangordf.properties import LangStringProperty
+
+    g = Graph()
+    s = URIRef("http://example.org/s")
+    p = URIRef("http://example.org/label")
+    g.add((s, p, Literal("Buch", lang="de")))
+    g.add((s, p, Literal("Book", lang="en")))
+
+    prop = LangStringProperty(predicate=p, many=True)
+    result = prop.from_rdf(g, s)
+    assert set(result) == {
+        LangString("Buch", "de"),
+        LangString("Book", "en"),
+    }
+
+
+def test_lang_string_property_scalar_from_rdf_missing_returns_none():
+    from rdflib import Graph, URIRef
+    from djangordf.properties import LangStringProperty
+
+    prop = LangStringProperty(
+        predicate=URIRef("http://example.org/label")
+    )
+    assert prop.from_rdf(Graph(), URIRef("http://example.org/s")) is None

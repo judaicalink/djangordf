@@ -9,6 +9,8 @@ from typing import Optional
 
 from rdflib import Literal, URIRef
 
+from .namespaces import LangString
+
 
 class Property:
     """Base class for declarative property descriptors.
@@ -111,3 +113,30 @@ class DataProperty(Property):
             return literal.toPython()
         except Exception:
             return str(literal)
+
+
+class LangStringProperty(Property):
+    """Language-tagged string property mapping to ``rdf:langString``."""
+
+    def to_rdf(self, subject, value):
+        if value is None:
+            return []
+        if self.many:
+            return [
+                (subject, self.predicate, Literal(ls.value, lang=ls.lang))
+                for ls in value
+            ]
+        return [
+            (subject, self.predicate, Literal(value.value, lang=value.lang))
+        ]
+
+    def from_rdf(self, graph, subject):
+        objects = list(graph.objects(subject, self.predicate))
+        results = [
+            LangString(str(o), o.language)
+            for o in objects
+            if getattr(o, "language", None) is not None
+        ]
+        if self.many:
+            return results
+        return results[0] if results else None
