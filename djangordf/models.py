@@ -3,7 +3,7 @@ import uuid
 from dataclasses import dataclass
 
 from django.conf import settings
-from rdflib import Literal, URIRef
+from rdflib import URIRef
 from rdflib.namespace import RDF
 
 from .manager import RDFManager
@@ -16,8 +16,7 @@ _MODEL_REGISTRY: dict = {}
 
 def get_registered_model(name: str):
     """Look up a model class by its name. Used for string targets in
-    ``ObjectProperty("self", ...)`` and forward references; the full
-    Property system in #7 reads through this."""
+    ``ObjectProperty("self", ...)`` and forward references."""
     return _MODEL_REGISTRY[name]
 
 
@@ -29,9 +28,6 @@ class _MetaInfo:
 
 
 def _build_meta(name: str, meta_cls) -> _MetaInfo:
-    """Resolve the inner ``Meta`` of an RDFModel subclass into a frozen
-    ``_MetaInfo`` instance, applying defaults from Django settings and
-    CURIE resolution where appropriate."""
     raw_class_iri = getattr(meta_cls, "class_iri", None) if meta_cls else None
     if raw_class_iri is None:
         class_iri = SKOS_CONCEPT
@@ -64,11 +60,15 @@ class RDFModelMeta(type):
         properties = {}
         for attr, value in list(namespace.items()):
             if isinstance(value, Property):
-                value.contribute_to_class(attr)
                 properties[attr] = value
 
         cls = super().__new__(mcs, name, bases, namespace)
         cls._properties = properties
+
+        # Now that ``cls`` exists, hand each property the owner class so
+        # ObjectProperty("self") can resolve.
+        for attr, prop in properties.items():
+            prop.contribute_to_class(attr, owner_class=cls)
 
         meta_cls = namespace.get("Meta")
         cls._meta = _build_meta(name, meta_cls)
@@ -91,8 +91,6 @@ class RDFModel(metaclass=RDFModelMeta):
         for attr, prop in self._properties.items():
             setattr(self, attr, kwargs.get(attr, prop.default()))
 
-    # -- identity by IRI ----------------------------------------------------
-
     def __eq__(self, other):
         if not isinstance(other, RDFModel):
             return NotImplemented
@@ -105,32 +103,20 @@ class RDFModel(metaclass=RDFModelMeta):
             return object.__hash__(self)
         return hash(self.iri)
 
-    # -- serialisation ------------------------------------------------------
-
     def _to_triples(self):
-        """Triples this instance should currently hold in the store.
+        """Emit all triples this instance currently represents.
 
-        The full property->RDF mapping lands in #7. This milestone
-        emits ``rdf:type`` plus any value whose Property declares an
-        explicit predicate.
+        Delegates to each property's ``to_rdf`` so concrete property
+        types (DataProperty / LangStringProperty / ObjectProperty /
+        URIProperty) own their own serialisation rules.
         """
         triples = [(self.iri, RDF.type, self._meta.class_iri)]
         for attr, prop in self._properties.items():
             if prop.predicate is None:
                 continue
             value = getattr(self, attr, None)
-            if value is None:
-                continue
-            if isinstance(value, URIRef):
-                obj = value
-            elif isinstance(value, Literal):
-                obj = value
-            else:
-                obj = Literal(value)
-            triples.append((self.iri, prop.predicate, obj))
+            triples.extend(prop.to_rdf(self.iri, value))
         return triples
-
-    # -- persistence facade -------------------------------------------------
 
     def save(self):
         if self.iri is None:
