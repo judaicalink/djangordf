@@ -263,3 +263,117 @@ def test_uri_property_from_rdf_returns_uriref():
     result = prop.from_rdf(g, s)
     assert isinstance(result, URIRef)
     assert str(result) == "http://example.org/o"
+
+
+# -- ObjectProperty ---------------------------------------------------------
+
+
+def test_object_property_to_rdf_takes_rdf_model_instance():
+    from rdflib import URIRef
+    from djangordf.models import RDFModel
+    from djangordf.properties import ObjectProperty
+
+    class TargetA(RDFModel):
+        pass
+
+    target = TargetA(iri="http://example.org/target/1")
+    prop = ObjectProperty(
+        TargetA,
+        predicate=URIRef("http://example.org/related"),
+    )
+    triples = prop.to_rdf(
+        URIRef("http://example.org/s"), target,
+    )
+    assert triples == [
+        (
+            URIRef("http://example.org/s"),
+            URIRef("http://example.org/related"),
+            URIRef("http://example.org/target/1"),
+        )
+    ]
+
+
+def test_object_property_to_rdf_accepts_uriref_too():
+    from rdflib import URIRef
+    from djangordf.models import RDFModel
+    from djangordf.properties import ObjectProperty
+
+    class TargetB(RDFModel):
+        pass
+
+    prop = ObjectProperty(
+        TargetB,
+        predicate=URIRef("http://example.org/related"),
+    )
+    triples = prop.to_rdf(
+        URIRef("http://example.org/s"),
+        URIRef("http://example.org/target/2"),
+    )
+    assert triples[0][2] == URIRef("http://example.org/target/2")
+
+
+def test_object_property_many_to_rdf():
+    from rdflib import URIRef
+    from djangordf.models import RDFModel
+    from djangordf.properties import ObjectProperty
+
+    class TargetC(RDFModel):
+        pass
+
+    a = TargetC(iri="http://example.org/c/a")
+    b = TargetC(iri="http://example.org/c/b")
+    prop = ObjectProperty(
+        TargetC,
+        predicate=URIRef("http://example.org/related"),
+        many=True,
+    )
+    triples = prop.to_rdf(URIRef("http://example.org/s"), [a, b])
+    targets = {t[2] for t in triples}
+    assert targets == {
+        URIRef("http://example.org/c/a"),
+        URIRef("http://example.org/c/b"),
+    }
+
+
+def test_object_property_from_rdf_returns_iris():
+    """In the walking-skeleton milestone the read side returns IRIs;
+    full instance hydration is the manager's job (issue #8)."""
+    from rdflib import Graph, URIRef
+    from djangordf.models import RDFModel
+    from djangordf.properties import ObjectProperty
+
+    class TargetD(RDFModel):
+        pass
+
+    g = Graph()
+    s = URIRef("http://example.org/s")
+    p = URIRef("http://example.org/related")
+    g.add((s, p, URIRef("http://example.org/d/1")))
+
+    prop = ObjectProperty(TargetD, predicate=p)
+    assert prop.from_rdf(g, s) == URIRef("http://example.org/d/1")
+
+
+def test_object_property_self_target_resolves_to_owner_class():
+    from djangordf.models import RDFModel
+    from djangordf.properties import ObjectProperty
+
+    class TermSelf(RDFModel):
+        broader = ObjectProperty("self")
+
+    prop = TermSelf._properties["broader"]
+    assert prop.target_class is TermSelf
+
+
+def test_object_property_string_target_resolves_through_registry():
+    from djangordf.models import RDFModel
+    from djangordf.properties import ObjectProperty
+
+    class TargetByName(RDFModel):
+        pass
+
+    class Referrer(RDFModel):
+        link = ObjectProperty("TargetByName")
+
+    prop = Referrer._properties["link"]
+    assert prop.target_class is TargetByName

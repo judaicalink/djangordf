@@ -160,3 +160,61 @@ class URIProperty(Property):
         if self.many:
             return [URIRef(o) for o in objects]
         return URIRef(objects[0]) if objects else None
+
+
+class ObjectProperty(Property):
+    """Link between two RDFModel instances.
+
+    ``target`` may be the target class, the string ``"self"``, or the
+    name of a registered model class — the last two resolve lazily
+    through ``djangordf.models.get_registered_model`` the first time
+    ``target_class`` is accessed.
+    """
+
+    def __init__(
+        self,
+        target,
+        predicate: Optional[URIRef] = None,
+        *,
+        many: bool = False,
+        required: bool = False,
+        default=None,
+    ) -> None:
+        super().__init__(
+            predicate,
+            many=many,
+            required=required,
+            default=default,
+        )
+        self._target = target
+
+    @property
+    def target_class(self):
+        if isinstance(self._target, type):
+            return self._target
+        if self._target == "self":
+            return self.owner_class
+        from .models import get_registered_model
+        return get_registered_model(self._target)
+
+    def to_rdf(self, subject, value):
+        if value is None:
+            return []
+        if self.many:
+            return [
+                (subject, self.predicate, self._iri_of(v))
+                for v in value
+            ]
+        return [(subject, self.predicate, self._iri_of(value))]
+
+    def from_rdf(self, graph, subject):
+        objects = list(graph.objects(subject, self.predicate))
+        if self.many:
+            return [URIRef(o) for o in objects]
+        return URIRef(objects[0]) if objects else None
+
+    @staticmethod
+    def _iri_of(value):
+        if isinstance(value, URIRef):
+            return value
+        return URIRef(value.iri)
