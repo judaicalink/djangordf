@@ -8,7 +8,11 @@ from rdflib.namespace import RDF
 
 from .manager import RDFManager
 from .properties import Property
-from .skos import Concept as SKOS_CONCEPT, resolve_curie
+from .skos import (
+    Concept as SKOS_CONCEPT,
+    DEFAULT_PREDICATES,
+    resolve_curie,
+)
 
 
 _MODEL_REGISTRY: dict = {}
@@ -66,9 +70,12 @@ class RDFModelMeta(type):
         cls._properties = properties
 
         # Now that ``cls`` exists, hand each property the owner class so
-        # ObjectProperty("self") can resolve.
+        # ObjectProperty("self") can resolve, and assign the SKOS
+        # convention predicate when none was supplied explicitly.
         for attr, prop in properties.items():
             prop.contribute_to_class(attr, owner_class=cls)
+            if prop.predicate is None and attr in DEFAULT_PREDICATES:
+                prop.predicate = DEFAULT_PREDICATES[attr]
 
         meta_cls = namespace.get("Meta")
         cls._meta = _build_meta(name, meta_cls)
