@@ -19,7 +19,10 @@ class InMemoryBackend(TripleStoreBackend):
         self._store = ConjunctiveGraph()
 
     def query(self, sparql: str) -> Union[Result, Graph]:
-        return self._store.query(sparql)
+        result = self._store.query(sparql)
+        if result.type in ("CONSTRUCT", "DESCRIBE") and result.graph is not None:
+            return result.graph
+        return result
 
     def update(self, sparql: str) -> None:
         self._store.update(sparql)

@@ -1,6 +1,7 @@
 from .backends import FusekiBackend, InMemoryBackend, TripleStoreBackend
 from .conf import get_backend
 from .functions import export_model_to_rdf
+from .manager import RDFManager, RDFQuerySet
 from .models import RDFModel
 from .namespaces import LangString, NamespaceRegistry, registry
 from .properties import (
@@ -20,7 +21,9 @@ __all__ = [
     "NamespaceRegistry",
     "ObjectProperty",
     "Property",
+    "RDFManager",
     "RDFModel",
+    "RDFQuerySet",
     "TripleStoreBackend",
     "URIProperty",
     "export_model_to_rdf",
