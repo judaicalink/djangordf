@@ -263,3 +263,22 @@ def test_property_is_importable_from_package_root():
     from djangordf import Property as TopLevelProperty
     from djangordf.properties import Property as ModuleProperty
     assert TopLevelProperty is ModuleProperty
+
+
+def test_new_property_types_are_importable_from_package_root():
+    from djangordf import (
+        DataProperty as TopData,
+        LangStringProperty as TopLang,
+        ObjectProperty as TopObj,
+        URIProperty as TopURI,
+        LangString as TopLangString,
+    )
+    from djangordf.properties import (
+        DataProperty, LangStringProperty, ObjectProperty, URIProperty,
+    )
+    from djangordf.namespaces import LangString
+    assert TopData is DataProperty
+    assert TopLang is LangStringProperty
+    assert TopObj is ObjectProperty
+    assert TopURI is URIProperty
+    assert TopLangString is LangString
