@@ -17,6 +17,8 @@ but persist as triples in a SPARQL 1.1 triple store, with built-in
 SKOS conventions, language-tagged literals, and a lazy queryset that
 mirrors Django's manager API.
 
+Full reference documentation: **https://djangordf.readthedocs.io/**.
+
 ## Features
 
 - **`RDFModel`** — declarative base class with `class_iri`,

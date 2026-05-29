@@ -5,6 +5,24 @@ All notable changes to djangordf will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-05-29
+
+Documentation-only release. No API changes.
+
+### Added
+- Sphinx documentation site under `docs/` (MyST sources, Furo theme,
+  autodoc reference for `djangordf.models`, `.properties`, `.manager`,
+  `.namespaces`, `.skos`, `.backends`).
+- `.readthedocs.yaml` v2 config so the published site at
+  https://djangordf.readthedocs.io/ tracks the released version.
+- `docs/requirements.txt` pinning Sphinx ≥ 7, Furo, MyST-Parser,
+  sphinx-autodoc-typehints.
+
+### Changed
+- `setup.py` re-adds `"Documentation": "https://djangordf.readthedocs.io/"`
+  to `project_urls` now that the docs site actually exists.
+- `README.md` links to the docs site near the top.
+
 ## [0.3.0] - 2026-05-28
 
 The RDFModel walking skeleton: a Django-style declarative layer over a
