@@ -12,5 +12,6 @@ properties
 manager
 namespaces
 skos
+ontology
 backends
 ```
