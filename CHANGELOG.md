@@ -5,6 +5,35 @@ All notable changes to djangordf will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-05-30
+
+Ontology generation from declared `RDFModel` classes — delivering on
+the project's "Modelle generieren Ontologie" tagline.
+
+### Added
+- `djangordf.ontology.generate_ontology(models=None, graph=None)`
+  returns an `rdflib.Graph` describing the schema of the registered
+  models: `owl:Class` declarations, `rdfs:label` + `rdfs:comment`
+  annotations, `rdfs:subClassOf` for `RDFModel` inheritance,
+  `owl:DatatypeProperty`/`owl:ObjectProperty` declarations for custom
+  predicates (external SKOS/FOAF/etc. predicates are deliberately not
+  re-declared), `rdfs:domain`/`rdfs:range`, and blank-node
+  `owl:Restriction`s with `owl:minCardinality 1` for `required=True`
+  and `owl:maxCardinality 1` for `many=False`.
+- `python manage.py dump_ontology [--output PATH] [--format {turtle,xml,json-ld,n3}]`
+  thin wrapper around the function.
+- `djangordf.generate_ontology` re-export at the package root.
+- Sphinx documentation page for `djangordf.ontology` and a Quickstart
+  blurb showing the management command.
+
+### Notes
+- External predicate detection is based on the seeded namespace
+  registry prefixes (`rdf`, `rdfs`, `owl`, `xsd`, `skos`, `dct`,
+  `foaf`). Any predicate IRI starting with one of these namespaces is
+  treated as already-declared by its source ontology and is therefore
+  annotated only with per-class `rdfs:domain`/`rdfs:range`/cardinality
+  statements.
+
 ## [0.3.1] - 2026-05-29
 
 Documentation-only release. No API changes.
