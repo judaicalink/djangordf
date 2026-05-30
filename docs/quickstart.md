@@ -115,3 +115,18 @@ A self-contained, runnable end-to-end example lives at
 design spec's acceptance script and exits 0 against the default
 in-memory backend, which makes it the fastest way to confirm a fresh
 install works.
+
+## Dump the schema as an OWL ontology
+
+Once your models are declared, you can publish the schema as Turtle
+(or RDF/XML, JSON-LD, N3) directly from the registered classes:
+
+```bash
+python manage.py dump_ontology --output schema.ttl
+python manage.py dump_ontology --format json-ld > schema.jsonld
+```
+
+Programmatic access goes through {func}`djangordf.ontology.generate_ontology`,
+which returns an `rdflib.Graph` containing the `owl:Class`,
+`rdfs:subClassOf`, `rdfs:domain`/`rdfs:range`, and cardinality
+restriction triples derived from your `RDFModel` declarations.
