@@ -110,6 +110,33 @@ Filter values can be Python literals, `URIRef`/`Literal`/`BNode`
 instances, or other `RDFModel` instances (the manager will use their
 `iri`).
 
+### Cross-class lookups
+
+Filter keys may span `ObjectProperty` hops using Django's `__`
+separator. Each segment names a property on the current class;
+non-terminal segments must be `ObjectProperty` instances (so the
+path can traverse the link); the terminal segment provides the
+predicate and the value to compare against.
+
+```python
+from djangordf.namespaces import LangString
+
+# One hop: find every Term whose broader has pref_label "Buch"@de.
+Term.objects.filter(broader__pref_label=LangString("Buch", "de"))
+
+# Two hops: chain ObjectProperty links arbitrarily deep.
+Term.objects.filter(broader__broader__title="Grand")
+
+# Cross-class lookups compose with the existing single-segment form.
+Term.objects.filter(broader__title="A", title="ChildOfA")
+```
+
+Each hop adds one triple pattern to the underlying SPARQL `SELECT
+DISTINCT ?s` and intermediate variables (`?v1`, `?v2`, …) are minted
+automatically. Lookup suffixes (`__icontains`, `__startswith`,
+`__gt`, …) are deliberately out of scope for this release — every
+segment compares for exact equality at the terminal step.
+
 ## Custom predicates and CURIE class IRIs
 
 When the SKOS conventions do not fit, pass explicit predicates and use
