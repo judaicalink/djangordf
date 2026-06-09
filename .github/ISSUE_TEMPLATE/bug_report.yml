@@ -1,0 +1,99 @@
+name: Bug report
+description: Report a crash, incorrect behaviour, or a regression in djangordf.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. The clearer
+        the reproducer, the faster we can confirm and fix it.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences describing the bug.
+      placeholder: "`Term.objects.get(iri)` raises X when the model declares ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: |
+        Minimal steps or code snippet that reproduces the bug. Include
+        the relevant `RDFModel` declaration and the call that fails.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What you thought would happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: |
+        What actually happened. Paste tracebacks here in full —
+        including the surrounding `pytest` output if you hit this
+        through the test suite.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: djangordf-version
+    attributes:
+      label: djangordf version
+      placeholder: "e.g. 0.5.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "e.g. 3.12.3"
+    validations:
+      required: true
+
+  - type: input
+    id: django-version
+    attributes:
+      label: Django version
+      placeholder: "e.g. 5.0.6"
+    validations:
+      required: true
+
+  - type: input
+    id: rdflib-version
+    attributes:
+      label: rdflib version
+      placeholder: "e.g. 7.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: backend
+    attributes:
+      label: Backend
+      description: Which `DJANGORDF_BACKEND` are you using when the bug shows up?
+      placeholder: "InMemoryBackend / FusekiBackend / other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Anything else worth knowing (logs, screenshots, related issues).
+    validations:
+      required: false
