@@ -177,6 +177,16 @@ class ObjectProperty(Property):
     predicate. The resolution is lazy — accessing ``inverse_property``
     or ``inverse_predicate`` for the first time looks up the
     referenced attribute on the target class.
+
+    ``reverse=True`` declares a read-only virtual property whose
+    triples live on the target class's forward predicate. Saving an
+    instance emits **no** triples for this property; reading hydrates
+    target-class ghost instances by looking up subjects that point at
+    this instance via ``predicate``. Filter paths through a reverse
+    segment swap subject and object so the generated SPARQL traverses
+    the inverse direction. ``reverse=True`` is mutually exclusive
+    with ``inverse=<name>`` (the latter implies mirror writes, which
+    contradicts read-only semantics).
     """
 
     def __init__(
@@ -188,6 +198,7 @@ class ObjectProperty(Property):
         required: bool = False,
         default=None,
         inverse: Optional[str] = None,
+        reverse: bool = False,
     ) -> None:
         super().__init__(
             predicate,
@@ -195,8 +206,14 @@ class ObjectProperty(Property):
             required=required,
             default=default,
         )
+        if reverse and inverse is not None:
+            raise ValueError(
+                "ObjectProperty cannot combine reverse=True with "
+                "inverse=...; reverse is read-only"
+            )
         self._target = target
         self.inverse = inverse
+        self.reverse = reverse
 
     @property
     def target_class(self):
@@ -231,6 +248,8 @@ class ObjectProperty(Property):
         return prop.predicate if prop is not None else None
 
     def to_rdf(self, subject, value):
+        if self.reverse:
+            return []
         if value is None:
             return []
         if self.many:
@@ -241,7 +260,10 @@ class ObjectProperty(Property):
         return [(subject, self.predicate, self._iri_of(value))]
 
     def from_rdf(self, graph, subject):
-        objects = list(graph.objects(subject, self.predicate))
+        if self.reverse:
+            objects = list(graph.subjects(self.predicate, subject))
+        else:
+            objects = list(graph.objects(subject, self.predicate))
         target_cls = self.target_class
         if self.many:
             return [target_cls(iri=URIRef(o)) for o in objects]

@@ -171,6 +171,49 @@ happens to declare a property called `exact` (or any other suffix
 name) keeps treating it as a property — `filter(exact="x")` is a
 single-segment key, so nothing is peeled.
 
+### Reverse-relation navigation
+
+`ObjectProperty(reverse=True)` declares a **read-only** virtual
+property: the triples live on a *different* class's forward
+predicate, and djangordf reads them "from the other end". Typical
+example: every `Book` has an `author`, and you want to navigate from
+an `Author` to their books without writing two predicates by hand:
+
+```python
+from rdflib import URIRef
+from djangordf import DataProperty, ObjectProperty, RDFModel
+
+
+class Book(RDFModel):
+    title = DataProperty(predicate=URIRef("http://example.org/title"))
+    author = ObjectProperty(
+        "Author", predicate=URIRef("http://example.org/author"),
+    )
+
+
+class Author(RDFModel):
+    books = ObjectProperty(
+        Book,
+        predicate=URIRef("http://example.org/author"),
+        many=True,
+        reverse=True,
+    )
+```
+
+Now `Author.objects.get(...)` hydrates `author.books` for free
+(djangordf issues a second CONSTRUCT for triples where the IRI is
+the *object*), and the filter path-walker swaps subject/object on
+any `reverse=True` segment:
+
+```python
+# Find authors who have a book whose title contains "cats".
+Author.objects.filter(books__title__icontains="cats")
+```
+
+`reverse=True` is mutually exclusive with `inverse=...` (which
+implies mirror writes — that contradicts read-only) and skips the
+SKOS-convention map: you always pass an explicit `predicate=`.
+
 ## Custom predicates and CURIE class IRIs
 
 When the SKOS conventions do not fit, pass explicit predicates and use

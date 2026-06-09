@@ -433,3 +433,78 @@ def test_object_property_inverse_unknown_attribute_raises_value_error():
 
     with pytest.raises(ValueError):
         TermInvBad._properties["broader"].inverse_property
+
+
+# -- ObjectProperty.reverse ------------------------------------------------
+
+def test_object_property_reverse_default_false():
+    from djangordf.properties import ObjectProperty
+    prop = ObjectProperty("self")
+    assert prop.reverse is False
+
+
+def test_object_property_reverse_keyword_stored():
+    from rdflib import URIRef
+    from djangordf.properties import ObjectProperty
+    prop = ObjectProperty(
+        "self",
+        predicate=URIRef("http://example.org/author"),
+        reverse=True,
+    )
+    assert prop.reverse is True
+
+
+def test_object_property_reverse_with_inverse_raises():
+    import pytest
+    from rdflib import URIRef
+    from djangordf.properties import ObjectProperty
+    with pytest.raises(ValueError):
+        ObjectProperty(
+            "self",
+            predicate=URIRef("http://example.org/p"),
+            reverse=True,
+            inverse="narrower",
+        )
+
+
+def test_object_property_reverse_to_rdf_returns_empty():
+    from rdflib import URIRef
+    from djangordf.models import RDFModel
+    from djangordf.properties import ObjectProperty
+
+    class TargetRev(RDFModel):
+        pass
+
+    prop = ObjectProperty(
+        TargetRev,
+        predicate=URIRef("http://example.org/p"),
+        reverse=True,
+    )
+    inst = TargetRev(iri="http://example.org/x")
+    assert prop.to_rdf(URIRef("http://example.org/s"), inst) == []
+    assert prop.to_rdf(URIRef("http://example.org/s"), [inst]) == []
+
+
+def test_object_property_reverse_from_rdf_reads_inverse_direction():
+    from rdflib import Graph, URIRef
+    from djangordf.models import RDFModel
+    from djangordf.properties import ObjectProperty
+
+    class TargetRevRead(RDFModel):
+        pass
+
+    g = Graph()
+    s = URIRef("http://example.org/anchor")
+    p = URIRef("http://example.org/points-at")
+    g.add((URIRef("http://example.org/from-1"), p, s))
+    g.add((URIRef("http://example.org/from-2"), p, s))
+
+    prop = ObjectProperty(
+        TargetRevRead, predicate=p, many=True, reverse=True,
+    )
+    result = prop.from_rdf(g, s)
+    iris = sorted(str(t.iri) for t in result)
+    assert iris == [
+        "http://example.org/from-1",
+        "http://example.org/from-2",
+    ]

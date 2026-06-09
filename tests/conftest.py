@@ -10,6 +10,17 @@ def load_graph(path):
     return g
 
 
+@pytest.fixture(autouse=True)
+def reset_backend_between_tests():
+    """Drop the process-wide cached backend so each test starts with a
+    fresh in-memory store. Without this, the singleton cache in
+    ``djangordf.conf`` would leak triples across tests."""
+    from djangordf import conf
+    conf.reset_backend()
+    yield
+    conf.reset_backend()
+
+
 @pytest.fixture
 def in_memory_backend(settings):
     """Documented opt-in for tests that want an isolated InMemoryBackend.
