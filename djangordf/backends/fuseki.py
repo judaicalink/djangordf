@@ -49,7 +49,16 @@ class FusekiBackend(TripleStoreBackend):
         return Result.parse(BytesIO(response.content), format="json")
 
     def update(self, sparql):
-        self._post(
+        """POST ``sparql`` to the Fuseki update endpoint.
+
+        Returns the underlying ``requests.Response`` so callers can
+        distinguish 200 vs. 204 outcomes, inspect custom headers, or
+        log the body — mirroring how :meth:`query` returns a graph or
+        result for callers to consume. ``raise_for_status`` has
+        already been called inside ``_post``, so any 4xx/5xx surface
+        as ``requests.HTTPError`` before this returns.
+        """
+        return self._post(
             f"{self.endpoint}/update",
             sparql,
             content_type="application/sparql-update",

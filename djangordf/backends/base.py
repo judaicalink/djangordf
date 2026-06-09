@@ -29,8 +29,14 @@ class TripleStoreBackend(ABC):
         """
 
     @abstractmethod
-    def update(self, sparql: str) -> None:
-        """Run a SPARQL UPDATE (INSERT, DELETE, CLEAR, LOAD)."""
+    def update(self, sparql: str):
+        """Run a SPARQL UPDATE (INSERT, DELETE, CLEAR, LOAD).
+
+        Backends may return any value that helps callers reason about
+        the outcome: HTTP-talking backends return the underlying
+        ``requests.Response`` so callers can read the status code or
+        custom headers; in-process backends typically return ``None``.
+        """
 
     @abstractmethod
     def add(
