@@ -91,9 +91,10 @@ class TripleStoreBackend(ABC):
     def clear(self, graph: URIRef | None = None) -> None: ...
 ```
 
-**`InMemoryBackend`** wraps a single `rdflib.ConjunctiveGraph`. SPARQL
-query and update go through rdflib's own engine. Zero network, zero
-extra dependencies. Powers all unit tests and the local quickstart.
+**`InMemoryBackend`** wraps a single `rdflib.Dataset` configured with
+`default_union=True`. SPARQL query and update go through rdflib's own
+engine. Zero network, zero extra dependencies. Powers all unit tests and
+the local quickstart.
 
 **`FusekiBackend`** wraps a `requests.Session()`. `query()` POSTs to
 `<endpoint>/query`, `update()` POSTs to `<endpoint>/update`. `add()` and
