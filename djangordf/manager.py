@@ -159,16 +159,31 @@ class RDFManager:
     def get(self, iri):
         iri = URIRef(iri)
         graph_iri = self.model_class._meta.graph_iri
-        sparql = (
+        forward_sparql = (
             f"CONSTRUCT {{ <{iri}> ?p ?o }} WHERE {{ "
             f"GRAPH <{graph_iri}> {{ <{iri}> ?p ?o }} }}"
         )
-        graph = self.backend.query(sparql)
+        graph = self.backend.query(forward_sparql)
         if len(graph) == 0:
             raise self.model_class.DoesNotExist(str(iri))
+        if self._has_reverse_properties():
+            reverse_sparql = (
+                f"CONSTRUCT {{ ?s ?p <{iri}> }} WHERE {{ "
+                f"GRAPH <{graph_iri}> {{ ?s ?p <{iri}> }} }}"
+            )
+            reverse_graph = self.backend.query(reverse_sparql)
+            for triple in reverse_graph:
+                graph.add(triple)
         instance = self.model_class(iri=iri)
         self._hydrate(instance, graph, iri)
         return instance
+
+    def _has_reverse_properties(self) -> bool:
+        from .properties import ObjectProperty
+        return any(
+            isinstance(p, ObjectProperty) and p.reverse
+            for p in getattr(self.model_class, "_properties", {}).values()
+        )
 
     def _hydrate(self, instance, graph, subject) -> None:
         for attr, prop in self.model_class._properties.items():
@@ -190,21 +205,29 @@ class RDFManager:
             current_cls = self.model_class
             for i, segment in enumerate(path_segments):
                 prop = self._resolve_segment(current_cls, segment)
+                is_reverse = getattr(prop, "reverse", False)
                 if i == len(path_segments) - 1:
                     if suffix == "exact":
-                        triple_patterns.append(
-                            (
-                                current_var,
-                                prop.predicate,
-                                self._object_term(prop, value),
+                        obj_term = self._object_term(prop, value)
+                        if is_reverse:
+                            triple_patterns.append(
+                                (obj_term, prop.predicate, current_var)
                             )
-                        )
+                        else:
+                            triple_patterns.append(
+                                (current_var, prop.predicate, obj_term)
+                            )
                     else:
                         var_counter += 1
                         terminal_var = f"?v{var_counter}"
-                        triple_patterns.append(
-                            (current_var, prop.predicate, terminal_var)
-                        )
+                        if is_reverse:
+                            triple_patterns.append(
+                                (terminal_var, prop.predicate, current_var)
+                            )
+                        else:
+                            triple_patterns.append(
+                                (current_var, prop.predicate, terminal_var)
+                            )
                         filter_clauses.append(
                             self._build_filter_clause(
                                 terminal_var, suffix, value, prop
@@ -220,7 +243,14 @@ class RDFManager:
                     )
                 var_counter += 1
                 next_var = f"?v{var_counter}"
-                triple_patterns.append((current_var, prop.predicate, next_var))
+                if is_reverse:
+                    triple_patterns.append(
+                        (next_var, prop.predicate, current_var)
+                    )
+                else:
+                    triple_patterns.append(
+                        (current_var, prop.predicate, next_var)
+                    )
                 current_var = next_var
                 current_cls = prop.target_class
         return RDFQuerySet(self, triple_patterns, filter_clauses)
