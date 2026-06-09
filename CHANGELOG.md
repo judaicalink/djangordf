@@ -5,6 +5,23 @@ All notable changes to djangordf will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-06-09
+
+Documentation / community-health release. No API changes.
+
+### Added
+- `CODE_OF_CONDUCT.md` adapted from Contributor Covenant 2.1.
+- `CONTRIBUTING.md` covering development setup, the three local
+  checks (`flake8`, `pytest`, `sphinx-build -W`), branch and commit
+  conventions, the PR flow against `development`, and the
+  maintainer-facing release flow used since 0.3.0.
+- GitHub issue templates under `.github/ISSUE_TEMPLATE/`: form-style
+  `bug_report`, `feature_request`, and `question`, plus a `config`
+  that disables blank issues and links to the docs and Code of
+  Conduct.
+- `.github/pull_request_template.md` with Summary, what's in the PR,
+  test-plan checklist, out-of-scope, and `Closes #` references.
+
 ## [0.5.0] - 2026-06-09
 
 Inverse properties on `ObjectProperty`. Declaring
