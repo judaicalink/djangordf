@@ -1,0 +1,38 @@
+name: Question
+description: "Ask how to do something with djangordf, or check whether something is supported."
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: please check the
+        [documentation](https://djangordf.readthedocs.io/) and search
+        the existing [issues](https://github.com/judaicalink/djangordf/issues?q=).
+        Questions get faster answers when they include a concrete
+        code snippet.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What would you like to do, and what have you tried so far?
+    validations:
+      required: true
+
+  - type: textarea
+    id: snippet
+    attributes:
+      label: Relevant code (optional)
+      description: A minimal snippet showing the model declaration or call you are stuck on.
+      render: python
+    validations:
+      required: false
+
+  - type: input
+    id: djangordf-version
+    attributes:
+      label: djangordf version
+      placeholder: "e.g. 0.5.0"
+    validations:
+      required: false

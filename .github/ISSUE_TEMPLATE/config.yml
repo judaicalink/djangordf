@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://djangordf.readthedocs.io/
+    about: Read the user guide and API reference before filing an issue.
+  - name: Code of Conduct
+    url: https://github.com/judaicalink/djangordf/blob/main/CODE_OF_CONDUCT.md
+    about: Behaviour expected of every contributor and participant.
