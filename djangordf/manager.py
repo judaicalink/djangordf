@@ -17,6 +17,26 @@ from .conf import get_backend
 _FILTER_DUMMY_SUBJECT = URIRef("urn:_djangordf:_filter:dummy")
 
 
+_KNOWN_LOOKUP_SUFFIXES = frozenset({
+    "exact", "iexact",
+    "contains", "icontains",
+    "startswith", "istartswith",
+    "endswith", "iendswith",
+    "in",
+    "gt", "gte", "lt", "lte",
+})
+
+
+def _peel_lookup_suffix(segments):
+    """Return ``(path_segments, suffix)``. A suffix is peeled only when
+    the key has at least two ``__``-separated segments, so a single
+    attribute name that happens to collide with a suffix is still
+    treated as the attribute name."""
+    if len(segments) >= 2 and segments[-1] in _KNOWN_LOOKUP_SUFFIXES:
+        return segments[:-1], segments[-1]
+    return segments, "exact"
+
+
 def _term(term):
     return term.n3()
 
@@ -161,17 +181,35 @@ class RDFManager:
 
     def filter(self, **kwargs) -> "RDFQuerySet":
         triple_patterns: List[Tuple[object, URIRef, object]] = []
+        filter_clauses: List[str] = []
         var_counter = 0
         for key, value in kwargs.items():
-            segments = key.split("__")
+            raw_segments = key.split("__")
+            path_segments, suffix = _peel_lookup_suffix(raw_segments)
             current_var: object = "?s"
             current_cls = self.model_class
-            for i, segment in enumerate(segments):
+            for i, segment in enumerate(path_segments):
                 prop = self._resolve_segment(current_cls, segment)
-                if i == len(segments) - 1:
-                    triple_patterns.append(
-                        (current_var, prop.predicate, self._object_term(prop, value))
-                    )
+                if i == len(path_segments) - 1:
+                    if suffix == "exact":
+                        triple_patterns.append(
+                            (
+                                current_var,
+                                prop.predicate,
+                                self._object_term(prop, value),
+                            )
+                        )
+                    else:
+                        var_counter += 1
+                        terminal_var = f"?v{var_counter}"
+                        triple_patterns.append(
+                            (current_var, prop.predicate, terminal_var)
+                        )
+                        filter_clauses.append(
+                            self._build_filter_clause(
+                                terminal_var, suffix, value, prop
+                            )
+                        )
                     break
                 from .properties import ObjectProperty
                 if not isinstance(prop, ObjectProperty):
@@ -185,7 +223,51 @@ class RDFManager:
                 triple_patterns.append((current_var, prop.predicate, next_var))
                 current_var = next_var
                 current_cls = prop.target_class
-        return RDFQuerySet(self, triple_patterns)
+        return RDFQuerySet(self, triple_patterns, filter_clauses)
+
+    def _build_filter_clause(self, var, suffix, value, prop) -> str:
+        """Render the SPARQL FILTER expression for a suffix lookup
+        against ``var``. The expression is returned without its
+        outer ``FILTER( … )`` wrapper — the queryset adds that on
+        render."""
+        if suffix == "iexact":
+            return (
+                f"LCASE(STR({var})) = LCASE({Literal(str(value)).n3()})"
+            )
+        if suffix == "contains":
+            return f"CONTAINS(STR({var}), {Literal(str(value)).n3()})"
+        if suffix == "icontains":
+            return (
+                f"CONTAINS(LCASE(STR({var})), "
+                f"LCASE({Literal(str(value)).n3()}))"
+            )
+        if suffix == "startswith":
+            return f"STRSTARTS(STR({var}), {Literal(str(value)).n3()})"
+        if suffix == "istartswith":
+            return (
+                f"STRSTARTS(LCASE(STR({var})), "
+                f"LCASE({Literal(str(value)).n3()}))"
+            )
+        if suffix == "endswith":
+            return f"STRENDS(STR({var}), {Literal(str(value)).n3()})"
+        if suffix == "iendswith":
+            return (
+                f"STRENDS(LCASE(STR({var})), "
+                f"LCASE({Literal(str(value)).n3()}))"
+            )
+        if suffix == "in":
+            try:
+                items = list(value)
+            except TypeError as exc:
+                raise TypeError(
+                    f"__in expects an iterable; got {type(value).__name__}"
+                ) from exc
+            rendered = ", ".join(
+                self._object_term(prop, item).n3() for item in items
+            )
+            return f"{var} IN ({rendered})"
+        op = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[suffix]
+        return f"{var} {op} {self._object_term(prop, value).n3()}"
 
     @staticmethod
     def _resolve_segment(cls, segment):
@@ -238,9 +320,10 @@ class RDFQuerySet:
     skeleton; an N+1 collapse can be a later optimisation.
     """
 
-    def __init__(self, manager: RDFManager, triple_patterns):
+    def __init__(self, manager: RDFManager, triple_patterns, filter_clauses=()):
         self._manager = manager
         self._triple_patterns = list(triple_patterns)
+        self._filter_clauses = list(filter_clauses)
         self._results_cache = None
 
     def _build_subject_sparql(self) -> str:
@@ -254,6 +337,8 @@ class RDFQuerySet:
                 f"<{predicate}> "
                 f"{self._render_term(obj_term)} ."
             )
+        for expr in self._filter_clauses:
+            patterns.append(f"FILTER({expr})")
         body = " ".join(patterns)
         return (
             f"SELECT DISTINCT ?s WHERE {{ "

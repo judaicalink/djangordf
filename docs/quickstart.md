@@ -133,9 +133,43 @@ Term.objects.filter(broader__title="A", title="ChildOfA")
 
 Each hop adds one triple pattern to the underlying SPARQL `SELECT
 DISTINCT ?s` and intermediate variables (`?v1`, `?v2`, …) are minted
-automatically. Lookup suffixes (`__icontains`, `__startswith`,
-`__gt`, …) are deliberately out of scope for this release — every
-segment compares for exact equality at the terminal step.
+automatically.
+
+### Lookup suffixes
+
+The terminal segment can carry a Django-style suffix that turns the
+comparison into a SPARQL `FILTER(...)` clause:
+
+```python
+# Case-insensitive substring search.
+Term.objects.filter(title__icontains="buch")
+
+# Set membership.
+Term.objects.filter(count__in=[1, 2, 3])
+
+# Numeric comparisons (typed-literal aware).
+Term.objects.filter(count__gt=4)
+
+# Suffixes compose with cross-class spans.
+Term.objects.filter(broader__title__icontains="parent")
+```
+
+Available suffixes:
+
+- `__exact` (default) — bound triple, exact equality.
+- `__iexact`, `__contains`, `__icontains`, `__startswith`,
+  `__istartswith`, `__endswith`, `__iendswith` — string matchers,
+  the `i` variants compare lowercased.
+- `__in` — value is an iterable; emits `?v IN (...)`.
+- `__gt`, `__gte`, `__lt`, `__lte` — comparisons; the value is
+  serialised through the property's datatype so
+  `count__gt=4` produces `"4"^^xsd:integer` in SPARQL.
+
+Suffix detection is conservative: a suffix is recognised only when
+the key has at least two `__`-separated segments. A model that
+happens to declare a property called `exact` (or any other suffix
+name) keeps treating it as a property — `filter(exact="x")` is a
+single-segment key, so nothing is peeled.
 
 ## Custom predicates and CURIE class IRIs
 
