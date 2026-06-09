@@ -3,6 +3,7 @@ import uuid
 from dataclasses import dataclass
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from rdflib import URIRef
 from rdflib.namespace import RDF
 
@@ -13,6 +14,23 @@ from .skos import (
     DEFAULT_PREDICATES,
     resolve_curie,
 )
+
+
+def _safe_setting(name: str):
+    """Read a Django setting without forcing settings setup.
+
+    ``LazySettings.__getattr__`` raises ``ImproperlyConfigured`` on
+    first access if Django is not yet configured — even when a default
+    is supplied via ``getattr(settings, name, default)``. We swallow
+    that here so ``_build_meta`` (which runs at class-creation time
+    for every ``RDFModel`` subclass and is therefore reachable on bare
+    ``import djangordf``) falls through to its hard-coded defaults
+    when Django settings have not been wired up yet.
+    """
+    try:
+        return getattr(settings, name, None)
+    except ImproperlyConfigured:
+        return None
 
 
 _MODEL_REGISTRY: dict = {}
@@ -40,14 +58,14 @@ def _build_meta(name: str, meta_cls) -> _MetaInfo:
 
     raw_namespace = getattr(meta_cls, "namespace", None) if meta_cls else None
     if raw_namespace is None:
-        raw_namespace = getattr(settings, "DJANGORDF_DEFAULT_NAMESPACE", None)
+        raw_namespace = _safe_setting("DJANGORDF_DEFAULT_NAMESPACE")
     if raw_namespace is None:
         raw_namespace = f"urn:djangordf:{name.lower()}:"
     namespace = URIRef(raw_namespace)
 
     raw_graph = getattr(meta_cls, "graph_iri", None) if meta_cls else None
     if raw_graph is None:
-        raw_graph = getattr(settings, "DJANGORDF_DEFAULT_GRAPH", None)
+        raw_graph = _safe_setting("DJANGORDF_DEFAULT_GRAPH")
     if raw_graph is None:
         raw_graph = "urn:djangordf:default"
     graph_iri = URIRef(raw_graph)
@@ -77,10 +95,9 @@ class RDFModelMeta(type):
             if prop.predicate is None and attr in DEFAULT_PREDICATES:
                 prop.predicate = DEFAULT_PREDICATES[attr]
 
-        meta_cls = namespace.get("Meta")
-        cls._meta = _build_meta(name, meta_cls)
-
         if name != "RDFModel":
+            meta_cls = namespace.get("Meta")
+            cls._meta = _build_meta(name, meta_cls)
             cls.DoesNotExist = type(
                 "DoesNotExist", (Exception,), {}
             )
