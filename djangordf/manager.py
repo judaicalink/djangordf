@@ -49,23 +49,90 @@ class RDFManager:
     def save(self, instance) -> None:
         graph_iri = instance._meta.graph_iri
         iri = instance.iri
-        triples = instance._to_triples()
+
+        triples = list(instance._to_triples())
+        mirror_triples, inverse_predicates = self._mirror_writes(instance)
+        triples.extend(mirror_triples)
         body = "\n".join(_format_triple(t) for t in triples)
-        sparql = (
+
+        statements = [
             f"WITH <{graph_iri}> "
-            f"DELETE {{ <{iri}> ?p ?o }} WHERE {{ <{iri}> ?p ?o }} ;"
+            f"DELETE {{ <{iri}> ?p ?o }} WHERE {{ <{iri}> ?p ?o }}"
+        ]
+        for inv_pred in inverse_predicates:
+            statements.append(
+                f"WITH <{graph_iri}> "
+                f"DELETE {{ ?s <{inv_pred}> <{iri}> }} "
+                f"WHERE {{ ?s <{inv_pred}> <{iri}> }}"
+            )
+        statements.append(
             f"INSERT DATA {{ GRAPH <{graph_iri}> {{ {body} }} }}"
         )
-        self.backend.update(sparql)
+        self.backend.update(" ;".join(statements))
 
     def delete(self, instance) -> None:
         graph_iri = instance._meta.graph_iri
         iri = instance.iri
-        sparql = (
+        statements = [
             f"WITH <{graph_iri}> "
             f"DELETE {{ <{iri}> ?p ?o }} WHERE {{ <{iri}> ?p ?o }}"
-        )
-        self.backend.update(sparql)
+        ]
+        for inv_pred in self._inverse_predicates(instance):
+            statements.append(
+                f"WITH <{graph_iri}> "
+                f"DELETE {{ ?s <{inv_pred}> <{iri}> }} "
+                f"WHERE {{ ?s <{inv_pred}> <{iri}> }}"
+            )
+        self.backend.update(" ;".join(statements))
+
+    def _inverse_properties(self, instance):
+        """Yield ``(prop, inverse_predicate)`` for every ObjectProperty
+        on this model that declares an ``inverse=``."""
+        from .properties import ObjectProperty
+        properties = getattr(self.model_class, "_properties", None) or {}
+        for prop in properties.values():
+            if not isinstance(prop, ObjectProperty) or prop.inverse is None:
+                continue
+            inv_pred = prop.inverse_predicate
+            if inv_pred is None:
+                continue
+            yield prop, inv_pred
+
+    def _inverse_predicates(self, instance):
+        """Distinct inverse predicates declared on this model."""
+        seen = []
+        for _, inv_pred in self._inverse_properties(instance):
+            if inv_pred not in seen:
+                seen.append(inv_pred)
+        return seen
+
+    def _mirror_writes(self, instance):
+        """Build the mirror triples and the inverse-predicate list for
+        ``instance``. The triples flow into the INSERT DATA body; the
+        predicates drive the extra DELETE statements that strip stale
+        mirror triples on the (potentially different) target subjects."""
+        mirror_triples = []
+        inverse_predicates = []
+        for prop, inv_pred in self._inverse_properties(instance):
+            if inv_pred not in inverse_predicates:
+                inverse_predicates.append(inv_pred)
+            value = getattr(instance, prop.attr_name, None)
+            if value is None:
+                continue
+            if prop.many:
+                targets = value
+            else:
+                targets = [value]
+            for target in targets:
+                target_iri = self._iri_of_value(target)
+                mirror_triples.append((target_iri, inv_pred, instance.iri))
+        return mirror_triples, inverse_predicates
+
+    @staticmethod
+    def _iri_of_value(value):
+        if isinstance(value, URIRef):
+            return value
+        return URIRef(value.iri)
 
     # -- read side ----------------------------------------------------------
 

@@ -169,6 +169,14 @@ class ObjectProperty(Property):
     name of a registered model class — the last two resolve lazily
     through ``djangordf.models.get_registered_model`` the first time
     ``target_class`` is accessed.
+
+    ``inverse`` names a property declared on the target class. When
+    present, saving an instance also writes the mirror triple
+    ``(target.iri, inverse_predicate, self.iri)`` and deletes any
+    stale mirror triples pointing at this instance via the inverse
+    predicate. The resolution is lazy — accessing ``inverse_property``
+    or ``inverse_predicate`` for the first time looks up the
+    referenced attribute on the target class.
     """
 
     def __init__(
@@ -179,6 +187,7 @@ class ObjectProperty(Property):
         many: bool = False,
         required: bool = False,
         default=None,
+        inverse: Optional[str] = None,
     ) -> None:
         super().__init__(
             predicate,
@@ -187,6 +196,7 @@ class ObjectProperty(Property):
             default=default,
         )
         self._target = target
+        self.inverse = inverse
 
     @property
     def target_class(self):
@@ -196,6 +206,29 @@ class ObjectProperty(Property):
             return self.owner_class
         from .models import get_registered_model
         return get_registered_model(self._target)
+
+    @property
+    def inverse_property(self):
+        """Resolve ``inverse`` to the matching ``Property`` on the
+        target class. Returns ``None`` if no inverse was declared;
+        raises ``ValueError`` if the name does not resolve."""
+        if self.inverse is None:
+            return None
+        target_cls = self.target_class
+        try:
+            return target_cls._properties[self.inverse]
+        except KeyError as exc:
+            raise ValueError(
+                f"inverse {self.inverse!r} is not declared on "
+                f"{target_cls.__name__}"
+            ) from exc
+
+    @property
+    def inverse_predicate(self):
+        """``URIRef`` predicate of the resolved inverse property,
+        or ``None`` if no inverse was declared."""
+        prop = self.inverse_property
+        return prop.predicate if prop is not None else None
 
     def to_rdf(self, subject, value):
         if value is None:

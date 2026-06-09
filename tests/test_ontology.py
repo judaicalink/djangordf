@@ -309,3 +309,49 @@ def test_generate_ontology_is_importable_from_package_root():
     from djangordf import generate_ontology as top_level
     from djangordf.ontology import generate_ontology as module_level
     assert top_level is module_level
+
+
+# -- owl:inverseOf ----------------------------------------------------------
+
+def test_owl_inverseof_emitted_for_reciprocal_declarations():
+    from djangordf import ObjectProperty, RDFModel
+    from djangordf.ontology import generate_ontology
+
+    broader_pred = URIRef("http://example.org/broader-pair")
+    narrower_pred = URIRef("http://example.org/narrower-pair")
+
+    class OntInvPair(RDFModel):
+        broader = ObjectProperty(
+            "self", predicate=broader_pred, inverse="narrower",
+        )
+        narrower = ObjectProperty(
+            "self", predicate=narrower_pred, inverse="broader",
+        )
+
+    g = generate_ontology(models=[OntInvPair])
+    pairs = {
+        (str(s), str(o))
+        for s, p, o in g.triples((None, OWL.inverseOf, None))
+    }
+    expected = tuple(sorted([str(broader_pred), str(narrower_pred)]))
+    assert expected in pairs or expected[::-1] in pairs
+
+
+def test_owl_inverseof_emitted_only_once_per_pair():
+    from djangordf import ObjectProperty, RDFModel
+    from djangordf.ontology import generate_ontology
+
+    pred_a = URIRef("http://example.org/once-a")
+    pred_b = URIRef("http://example.org/once-b")
+
+    class OntInvOnce(RDFModel):
+        a = ObjectProperty(
+            "self", predicate=pred_a, inverse="b",
+        )
+        b = ObjectProperty(
+            "self", predicate=pred_b, inverse="a",
+        )
+
+    g = generate_ontology(models=[OntInvOnce])
+    inverse_triples = list(g.triples((None, OWL.inverseOf, None)))
+    assert len(inverse_triples) == 1
