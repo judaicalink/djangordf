@@ -214,6 +214,39 @@ Author.objects.filter(books__title__icontains="cats")
 implies mirror writes — that contradicts read-only) and skips the
 SKOS-convention map: you always pass an explicit `predicate=`.
 
+### Composing filters with `Q`
+
+`Q` objects let you combine filter expressions with `|` (OR), `&`
+(AND), and `~` (NOT). Pass them positionally to `filter()` alongside
+or instead of the usual kwargs:
+
+```python
+from djangordf import Q
+
+# OR — SPARQL UNION.
+Term.objects.filter(Q(title="A") | Q(title="B"))
+
+# NOT — SPARQL FILTER NOT EXISTS.
+Term.objects.filter(~Q(title="bad"))
+
+# Mixing positional Q and kwargs — AND-combined.
+Term.objects.filter(Q(title="A") | Q(title="B"), count__gt=5)
+
+# Nested expressions.
+Term.objects.filter(
+    (Q(title="A") | Q(title="B")) & ~Q(count=1)
+)
+```
+
+Every `(key, value)` leaf inside a `Q` uses the same key syntax as
+flat `filter()`: simple attrs, `__`-separated paths through
+`ObjectProperty` hops, the 13 lookup suffixes, and reverse segments
+all compose with `Q` exactly as they do with kwargs.
+
+`Q()` with no arguments raises `ValueError`, and `bool(Q(...))`
+raises `TypeError` (to avoid silent coercions). Use only the
+operators above.
+
 ## Custom predicates and CURIE class IRIs
 
 When the SKOS conventions do not fit, pass explicit predicates and use
