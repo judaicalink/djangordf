@@ -5,6 +5,40 @@ All notable changes to djangordf will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-06-09
+
+Django-style lookup suffixes on `RDFManager.filter`. Callers can now
+compare property values beyond bare equality — case-insensitive
+substring search, set membership, numeric ranges — by appending one
+of the recognised suffixes to the terminal filter segment.
+
+### Added
+- 13 suffixes on the last `__`-separated segment of any filter key:
+  `__exact` (default), `__iexact`, `__contains`, `__icontains`,
+  `__startswith`, `__istartswith`, `__endswith`, `__iendswith`,
+  `__in`, `__gt`, `__gte`, `__lt`, `__lte`. Each non-`__exact`
+  suffix becomes a SPARQL `FILTER(...)` clause attached to a triple
+  that binds the property to a fresh variable.
+- `RDFQuerySet` gains a `filter_clauses` list rendered after the
+  triple patterns inside the same `GRAPH { ... }` block.
+- Quickstart documentation: new "Lookup suffixes" subsection with
+  one example per family plus a note on the suffix-collision edge
+  case.
+
+### Notes
+- Suffix detection is conservative: a suffix is recognised only when
+  the key has at least two `__`-separated segments. A model that
+  declares a property literally called `exact`, `contains`, etc. is
+  unaffected — `filter(exact="x")` is a single-segment key, so
+  nothing is peeled.
+- `__in` requires an iterable; passing a scalar raises `TypeError`.
+- Numeric comparison suffixes serialise the value through the
+  property's datatype, so `count__gt=4` produces `"4"^^xsd:integer`
+  in the generated SPARQL.
+- `__regex`, `__isnull`, `__year`/`__month`/`__date`/`__time`, `Q`
+  composition, and reverse-relation navigation remain intentionally
+  out of scope.
+
 ## [0.6.0] - 2026-06-09
 
 Cross-class lookups in `RDFManager.filter`. Callers can now write
