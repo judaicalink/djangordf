@@ -380,3 +380,56 @@ def test_object_property_string_target_resolves_through_registry():
 
     prop = Referrer._properties["link"]
     assert prop.target_class is TargetByName
+
+
+# -- ObjectProperty.inverse ------------------------------------------------
+
+def test_object_property_inverse_keyword_stored_verbatim():
+    from djangordf.properties import ObjectProperty
+    prop = ObjectProperty("self", inverse="narrower")
+    assert prop.inverse == "narrower"
+
+
+def test_object_property_inverse_none_by_default():
+    from djangordf.properties import ObjectProperty
+    prop = ObjectProperty("self")
+    assert prop.inverse is None
+    assert prop.inverse_property is None
+    assert prop.inverse_predicate is None
+
+
+def test_object_property_inverse_property_resolves():
+    from rdflib import URIRef
+    from djangordf.models import RDFModel
+    from djangordf.properties import ObjectProperty
+
+    class TermInvA(RDFModel):
+        broader = ObjectProperty(
+            "self",
+            predicate=URIRef("http://example.org/broader"),
+            inverse="narrower",
+        )
+        narrower = ObjectProperty(
+            "self",
+            predicate=URIRef("http://example.org/narrower"),
+            inverse="broader",
+        )
+
+    broader = TermInvA._properties["broader"]
+    narrower = TermInvA._properties["narrower"]
+    assert broader.inverse_property is narrower
+    assert broader.inverse_predicate == URIRef("http://example.org/narrower")
+    assert narrower.inverse_property is broader
+    assert narrower.inverse_predicate == URIRef("http://example.org/broader")
+
+
+def test_object_property_inverse_unknown_attribute_raises_value_error():
+    import pytest
+    from djangordf.models import RDFModel
+    from djangordf.properties import ObjectProperty
+
+    class TermInvBad(RDFModel):
+        broader = ObjectProperty("self", inverse="not-a-real-attribute")
+
+    with pytest.raises(ValueError):
+        TermInvBad._properties["broader"].inverse_property
