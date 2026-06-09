@@ -527,3 +527,145 @@ def test_filter_in_with_non_iterable_raises(fresh_backend):
     Term = _suffix_term_model("SfxInNonIter")
     with pytest.raises(TypeError):
         list(Term.objects.filter(count__in=42))
+
+
+# -- ordering + slicing ----------------------------------------------------
+
+def _ordering_term_model(name):
+    from djangordf import DataProperty, RDFModel
+
+    return type(
+        name,
+        (RDFModel,),
+        {
+            "title": DataProperty(
+                predicate=URIRef("http://example.org/title"),
+            ),
+            "count": DataProperty(
+                predicate=URIRef("http://example.org/count"),
+                datatype=XSD.integer,
+            ),
+        },
+    )
+
+
+def test_slice_returns_first_n_items(fresh_backend):
+    Term = _ordering_term_model("OrdSliceN")
+    for i in range(5):
+        Term.objects.create(title=f"T{i}", count=i)
+    items = list(Term.objects.all().order_by("count")[:3])
+    assert [t.count for t in items] == [0, 1, 2]
+
+
+def test_slice_with_offset_returns_window(fresh_backend):
+    Term = _ordering_term_model("OrdSliceWin")
+    for i in range(5):
+        Term.objects.create(title=f"T{i}", count=i)
+    items = list(Term.objects.all().order_by("count")[2:4])
+    assert [t.count for t in items] == [2, 3]
+
+
+def test_index_returns_single_item(fresh_backend):
+    Term = _ordering_term_model("OrdIdx")
+    for i in range(3):
+        Term.objects.create(title=f"T{i}", count=i)
+    item = Term.objects.all().order_by("count")[1]
+    assert item.count == 1
+
+
+def test_index_out_of_range_raises_index_error(fresh_backend):
+    Term = _ordering_term_model("OrdIdxOOR")
+    Term.objects.create(title="only", count=1)
+    with pytest.raises(IndexError):
+        Term.objects.all()[5]
+
+
+def test_negative_index_raises(fresh_backend):
+    Term = _ordering_term_model("OrdIdxNeg")
+    Term.objects.create(title="x", count=1)
+    with pytest.raises(IndexError):
+        Term.objects.all()[-1]
+
+
+def test_negative_slice_start_or_stop_raises(fresh_backend):
+    Term = _ordering_term_model("OrdSliceNeg")
+    Term.objects.create(title="x", count=1)
+    with pytest.raises(IndexError):
+        Term.objects.all()[-1:]
+    with pytest.raises(IndexError):
+        Term.objects.all()[:-1]
+
+
+def test_slice_step_raises(fresh_backend):
+    Term = _ordering_term_model("OrdSliceStep")
+    Term.objects.create(title="x", count=1)
+    with pytest.raises(TypeError):
+        Term.objects.all()[::2]
+
+
+def test_order_by_ascending(fresh_backend):
+    Term = _ordering_term_model("OrdAsc")
+    Term.objects.create(title="c", count=3)
+    Term.objects.create(title="a", count=1)
+    Term.objects.create(title="b", count=2)
+    titles = [t.title for t in Term.objects.all().order_by("title")]
+    assert titles == ["a", "b", "c"]
+
+
+def test_order_by_descending(fresh_backend):
+    Term = _ordering_term_model("OrdDesc")
+    Term.objects.create(title="c", count=3)
+    Term.objects.create(title="a", count=1)
+    Term.objects.create(title="b", count=2)
+    titles = [t.title for t in Term.objects.all().order_by("-title")]
+    assert titles == ["c", "b", "a"]
+
+
+def test_order_by_multiple_fields(fresh_backend):
+    Term = _ordering_term_model("OrdMulti")
+    Term.objects.create(title="a", count=2)
+    Term.objects.create(title="a", count=1)
+    Term.objects.create(title="b", count=1)
+    rows = [
+        (t.title, t.count)
+        for t in Term.objects.all().order_by("title", "-count")
+    ]
+    assert rows == [("a", 2), ("a", 1), ("b", 1)]
+
+
+def test_order_by_clears_when_called_with_no_args(fresh_backend):
+    Term = _ordering_term_model("OrdClear")
+    Term.objects.create(title="b", count=2)
+    Term.objects.create(title="a", count=1)
+    qs = Term.objects.all().order_by("title").order_by()
+    assert "ORDER BY" not in qs._build_subject_sparql()
+
+
+def test_order_by_unknown_attribute_raises_on_iteration(fresh_backend):
+    Term = _ordering_term_model("OrdUnknown")
+    Term.objects.create(title="x", count=1)
+    qs = Term.objects.all().order_by("not_a_real_attr")
+    with pytest.raises(ValueError):
+        list(qs)
+
+
+def test_slice_composes_with_prior_slice(fresh_backend):
+    Term = _ordering_term_model("OrdSliceChain")
+    for i in range(10):
+        Term.objects.create(title=f"T{i:02d}", count=i)
+    inner = Term.objects.all().order_by("count")[2:8]
+    outer = inner[1:4]
+    counts = [t.count for t in outer]
+    assert counts == [3, 4, 5]
+
+
+def test_order_by_chains_with_filter_and_slice(fresh_backend):
+    Term = _ordering_term_model("OrdComposed")
+    for i in range(6):
+        Term.objects.create(title=f"T{i}", count=i)
+    qs = (
+        Term.objects.filter(count__gte=2)
+        .order_by("-count")[:2]
+    )
+    counts = [t.count for t in qs]
+    assert counts == [5, 4]

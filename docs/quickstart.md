@@ -247,6 +247,32 @@ all compose with `Q` exactly as they do with kwargs.
 raises `TypeError` (to avoid silent coercions). Use only the
 operators above.
 
+### Ordering and slicing
+
+`order_by(*fields)` chains onto any queryset and emits a SPARQL
+`ORDER BY` on materialisation. Prefix a field with `-` for
+descending; pass no arguments to clear any existing ordering.
+
+```python
+ordered = Term.objects.all().order_by("title")
+descending = Term.objects.all().order_by("-count")
+multi = Term.objects.all().order_by("title", "-count")
+```
+
+Slicing returns a new lazy queryset configured with SPARQL `LIMIT`
+and `OFFSET`. Indexing materialises and returns a single instance:
+
+```python
+first_ten = Term.objects.all().order_by("count")[:10]
+page2 = Term.objects.filter(title__icontains="a").order_by("title")[10:20]
+top = Term.objects.all().order_by("-count")[0]   # forces materialisation
+```
+
+Negative indices and slice steps raise (`IndexError` / `TypeError`);
+chained slices compose correctly so `qs[10:20][2:4]` ends up as
+`OFFSET 12 LIMIT 2`. Cross-class ordering (`order_by("broader__title")`)
+is intentionally not supported in this release.
+
 ## Custom predicates and CURIE class IRIs
 
 When the SKOS conventions do not fit, pass explicit predicates and use
