@@ -22,6 +22,35 @@ example: `Term` defaults to `skos:Concept`, and the three properties
 match the SKOS convention map so the metaclass wires them to
 `skos:prefLabel`, `skos:altLabel`, and `skos:broader` automatically.
 
+## Bidirectional links via `inverse=`
+
+For SKOS-style hierarchies you usually want both directions of the
+hierarchy stored in the triple store so external tools see them. Add
+a `narrower` property and link the two with `inverse=`:
+
+```python
+class Term(RDFModel):
+    pref_label = LangStringProperty(many=True)
+    broader = ObjectProperty("self", many=True, inverse="narrower")
+    narrower = ObjectProperty("self", many=True, inverse="broader")
+```
+
+Now every `save()` writes both directions in a single SPARQL update,
+and `parent.narrower` reads the back-pointers without an extra round
+trip:
+
+```python
+parent = Term.objects.create()
+child = Term.objects.create(broader=[parent])
+
+reloaded = Term.objects.get(parent.iri)
+assert reloaded.narrower[0].iri == child.iri
+```
+
+Updating `child.broader` to a different parent automatically strips
+the stale `narrower` back-pointer from the previous one; deleting the
+child removes both directions.
+
 ## Create, link, fetch
 
 ```python
