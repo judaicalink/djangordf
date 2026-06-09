@@ -159,4 +159,24 @@ def generate_ontology(
             _emit_property_domain_range(graph, model, prop)
             _emit_cardinality_restriction(graph, model, prop)
 
+    _emit_inverse_of(graph, models)
     return graph
+
+
+def _emit_inverse_of(graph: Graph, models: Iterable[type]) -> None:
+    """Emit ``owl:inverseOf`` between every pair of predicates whose
+    ``ObjectProperty`` declarations point at each other through
+    ``inverse=``. Each pair is emitted only once."""
+    emitted = set()
+    for model in models:
+        for prop in model._properties.values():
+            if not isinstance(prop, ObjectProperty) or prop.inverse is None:
+                continue
+            inv_pred = prop.inverse_predicate
+            if inv_pred is None or prop.predicate is None:
+                continue
+            key = tuple(sorted((str(prop.predicate), str(inv_pred))))
+            if key in emitted:
+                continue
+            emitted.add(key)
+            graph.add((prop.predicate, OWL.inverseOf, inv_pred))
