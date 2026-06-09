@@ -5,6 +5,39 @@ All notable changes to djangordf will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-06-09
+
+Cross-class lookups in `RDFManager.filter`. Callers can now write
+`Term.objects.filter(broader__pref_label="Buch")` and chain
+arbitrarily deep `broader__broader__title=...` paths; each `__` hop
+becomes one triple pattern in the generated `SELECT DISTINCT ?s`.
+
+### Added
+- `RDFManager.filter(**kwargs)` accepts keys with `__` separators.
+  Each non-terminal segment must be an `ObjectProperty`; the terminal
+  segment provides the predicate and the comparison endpoint.
+- Variables (`?v1`, `?v2`, …) are minted automatically; intermediate
+  vars are shared across all kwargs of one `filter()` call.
+- Quickstart documentation: new "Cross-class lookups" section with
+  one-hop, two-hop, and combined-kwargs examples.
+
+### Changed
+- `RDFQuerySet`'s internal pattern shape moves from
+  `(predicate, object_term)` 2-tuples to
+  `(subject_var_or_iri, predicate, object_term_or_var)` 3-tuples so
+  intermediate variables thread across hops. Single-segment filters
+  collapse to a one-pattern list with `?s` as subject — existing
+  behaviour is preserved.
+- `RDFManager._object_term` now handles `LangString` values directly
+  and temporarily flips `many=False` when serialising a scalar filter
+  value for a `many=True` property; previously it iterated the
+  scalar and raised `TypeError`.
+
+### Notes
+- Lookup suffixes (`__exact`, `__icontains`, `__startswith`, `__gt`,
+  `__in`, …) and reverse-relation navigation are intentionally out
+  of scope and tracked as separate follow-ups.
+
 ## [0.5.1] - 2026-06-09
 
 Documentation / community-health release. No API changes.

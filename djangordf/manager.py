@@ -160,29 +160,67 @@ class RDFManager:
         return RDFQuerySet(self, [])
 
     def filter(self, **kwargs) -> "RDFQuerySet":
-        triple_patterns: List[Tuple[URIRef, object]] = []
-        for attr, value in kwargs.items():
-            if attr not in self.model_class._properties:
-                raise ValueError(
-                    f"Unknown attribute on "
-                    f"{self.model_class.__name__}: {attr!r}"
-                )
-            prop = self.model_class._properties[attr]
-            if prop.predicate is None:
-                raise ValueError(
-                    f"Property {attr!r} has no predicate; "
-                    f"cannot use it in filter()"
-                )
-            triple_patterns.append((prop.predicate, self._object_term(prop, value)))
+        triple_patterns: List[Tuple[object, URIRef, object]] = []
+        var_counter = 0
+        for key, value in kwargs.items():
+            segments = key.split("__")
+            current_var: object = "?s"
+            current_cls = self.model_class
+            for i, segment in enumerate(segments):
+                prop = self._resolve_segment(current_cls, segment)
+                if i == len(segments) - 1:
+                    triple_patterns.append(
+                        (current_var, prop.predicate, self._object_term(prop, value))
+                    )
+                    break
+                from .properties import ObjectProperty
+                if not isinstance(prop, ObjectProperty):
+                    raise ValueError(
+                        f"non-terminal lookup segment {segment!r} on "
+                        f"{current_cls.__name__} is not an ObjectProperty; "
+                        f"cannot span"
+                    )
+                var_counter += 1
+                next_var = f"?v{var_counter}"
+                triple_patterns.append((current_var, prop.predicate, next_var))
+                current_var = next_var
+                current_cls = prop.target_class
         return RDFQuerySet(self, triple_patterns)
+
+    @staticmethod
+    def _resolve_segment(cls, segment):
+        try:
+            prop = cls._properties[segment]
+        except KeyError as exc:
+            raise ValueError(
+                f"Unknown attribute {segment!r} on {cls.__name__}"
+            ) from exc
+        if prop.predicate is None:
+            raise ValueError(
+                f"Property {segment!r} on {cls.__name__} has no "
+                f"predicate; cannot use it in filter()"
+            )
+        return prop
 
     def _object_term(self, prop, value):
         if isinstance(value, (URIRef, Literal, BNode)):
             return value
         from .models import RDFModel
+        from .namespaces import LangString
         if isinstance(value, RDFModel) and value.iri is not None:
             return URIRef(value.iri)
-        triples = prop.to_rdf(_FILTER_DUMMY_SUBJECT, value)
+        if isinstance(value, LangString):
+            return Literal(value.value, lang=value.lang)
+        # ``prop.to_rdf`` of a ``many=True`` property iterates over
+        # ``value`` — that's wrong for filter, where the user supplied a
+        # single scalar to compare against. Build a single-value triple
+        # by temporarily flipping the cardinality.
+        original_many = getattr(prop, "many", False)
+        prop.many = False
+        try:
+            triples = prop.to_rdf(_FILTER_DUMMY_SUBJECT, value)
+        finally:
+            prop.many = original_many
         if not triples:
             raise ValueError(
                 f"Cannot serialise {value!r} for property {prop.attr_name!r}"
@@ -210,13 +248,25 @@ class RDFQuerySet:
         graph_iri = model._meta.graph_iri
         class_iri = model._meta.class_iri
         patterns = [f"?s a <{class_iri}> ."]
-        for predicate, obj_term in self._triple_patterns:
-            patterns.append(f"?s <{predicate}> {obj_term.n3()} .")
+        for subject, predicate, obj_term in self._triple_patterns:
+            patterns.append(
+                f"{self._render_term(subject)} "
+                f"<{predicate}> "
+                f"{self._render_term(obj_term)} ."
+            )
         body = " ".join(patterns)
         return (
             f"SELECT DISTINCT ?s WHERE {{ "
             f"GRAPH <{graph_iri}> {{ {body} }} }}"
         )
+
+    @staticmethod
+    def _render_term(term) -> str:
+        """Render a SPARQL term. ``?var`` strings pass through verbatim;
+        anything else is rdflib-serialised via ``.n3()``."""
+        if isinstance(term, str) and term.startswith("?"):
+            return term
+        return term.n3()
 
     def _fetch(self):
         if self._results_cache is not None:

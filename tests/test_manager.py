@@ -285,3 +285,109 @@ def test_get_hydrates_via_property_from_rdf(fresh_backend):
         ).objects(URIRef(inst.iri), URIRef("http://example.org/count"))
     )
     assert raw_objects == [Literal(7, datatype=XSD.integer)]
+
+
+# -- cross-class lookups (filter spanning __) -------------------------------
+
+def _lookup_term_model(name="LookupTerm"):
+    """Term model used by the cross-class lookup tests."""
+    from djangordf import (
+        DataProperty,
+        LangStringProperty,
+        ObjectProperty,
+        RDFModel,
+    )
+
+    Term = type(
+        name,
+        (RDFModel,),
+        {
+            "title": DataProperty(
+                predicate=URIRef("http://example.org/title"),
+            ),
+            "pref_label": LangStringProperty(many=True),
+            "broader": ObjectProperty("self", many=True),
+        },
+    )
+    return Term
+
+
+def test_filter_spans_one_objectproperty_to_dataproperty(fresh_backend):
+    Term = _lookup_term_model("LookupSpan1")
+    parent = Term.objects.create(title="Parent")
+    Term.objects.create(title="Child1", broader=[parent])
+    Term.objects.create(title="Child2", broader=[parent])
+    Term.objects.create(title="Lonely")
+
+    children = list(Term.objects.filter(broader__title="Parent"))
+    assert {c.title for c in children} == {"Child1", "Child2"}
+
+
+def test_filter_spans_one_objectproperty_to_langstring(fresh_backend):
+    from djangordf.namespaces import LangString
+
+    Term = _lookup_term_model("LookupSpanLang")
+    parent = Term.objects.create(
+        pref_label=[LangString("Buch", "de")],
+    )
+    Term.objects.create(title="ChildOfBuch", broader=[parent])
+    Term.objects.create(title="UnrelatedChild")
+
+    matches = list(
+        Term.objects.filter(broader__pref_label=LangString("Buch", "de"))
+    )
+    assert [m.title for m in matches] == ["ChildOfBuch"]
+
+
+def test_filter_spans_two_objectproperty_hops(fresh_backend):
+    Term = _lookup_term_model("LookupSpan2")
+    grand = Term.objects.create(title="Grand")
+    parent = Term.objects.create(title="Parent", broader=[grand])
+    Term.objects.create(title="Grandchild", broader=[parent])
+    Term.objects.create(title="OrphanChild")
+
+    matches = list(Term.objects.filter(broader__broader__title="Grand"))
+    assert [m.title for m in matches] == ["Grandchild"]
+
+
+def test_filter_combines_simple_and_spanning_kwargs(fresh_backend):
+    Term = _lookup_term_model("LookupSpanCombo")
+    parent_a = Term.objects.create(title="A")
+    parent_b = Term.objects.create(title="B")
+    Term.objects.create(title="ChildOfA1", broader=[parent_a])
+    Term.objects.create(title="ChildOfA2", broader=[parent_a])
+    Term.objects.create(title="ChildOfB", broader=[parent_b])
+
+    matches = list(
+        Term.objects.filter(broader__title="A", title="ChildOfA1")
+    )
+    assert [m.title for m in matches] == ["ChildOfA1"]
+
+
+def test_filter_unknown_segment_on_path_raises(fresh_backend):
+    Term = _lookup_term_model("LookupBadSegment")
+    with pytest.raises(ValueError):
+        Term.objects.filter(broader__no_such_attr="x")
+
+
+def test_filter_nonterminal_segment_must_be_objectproperty(fresh_backend):
+    """`title` is a DataProperty; using it as a non-terminal hop must fail."""
+    Term = _lookup_term_model("LookupNonTerm")
+    with pytest.raises(ValueError):
+        Term.objects.filter(title__broader="x")
+
+
+def test_filter_simple_single_segment_still_works(fresh_backend):
+    """Single-segment filter behaviour must not regress."""
+    Term = _lookup_term_model("LookupSimple")
+    Term.objects.create(title="A")
+    Term.objects.create(title="B")
+
+    matches = list(Term.objects.filter(title="A"))
+    assert [m.title for m in matches] == ["A"]
+
+
+def test_filter_first_segment_must_exist_on_model(fresh_backend):
+    Term = _lookup_term_model("LookupBadFirst")
+    with pytest.raises(ValueError):
+        Term.objects.filter(no_such_attr__title="x")
