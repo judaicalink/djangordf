@@ -5,6 +5,42 @@ All notable changes to djangordf will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-06-09
+
+Bug-fix release responding to production feedback from the Haskala
+library integration. The 0.4.0 wheel on PyPI was unusable — see #29.
+
+### Fixed
+- **Packaging (#29).** `setup.py` now uses
+  `find_packages(include=['djangordf', 'djangordf.*'])` so the wheel
+  actually contains `djangordf.backends`, `djangordf.management`, and
+  `djangordf.management.commands`. The 0.4.0 wheel shipped only the
+  top-level package and every `import djangordf` raised
+  `ModuleNotFoundError: No module named 'djangordf.backends'`.
+- **Standalone imports (#30).** `RDFModelMeta` no longer runs
+  `_build_meta` for the abstract `RDFModel` base, and `_build_meta`
+  swallows `ImproperlyConfigured` from Django's lazy settings so
+  `from djangordf.backends.fuseki import FusekiBackend` and friends
+  succeed in non-Django scripts (or before `django.setup()` has run).
+  User-defined subclasses still get a sensible `_meta` via the
+  existing `urn:djangordf:...` fallbacks.
+
+### Changed
+- **`FusekiBackend.update` returns the HTTP response (#31).** The
+  abstract `TripleStoreBackend.update` is now documented as
+  potentially returning a value; `FusekiBackend` forwards the
+  underlying `requests.Response` so callers can distinguish 200 vs.
+  204 and inspect headers. `InMemoryBackend.update` still returns
+  `None`.
+
+### Added
+- `tests/test_packaging.py` pins all three fixes via a regression
+  test for `find_packages` and three subprocess tests that scrub
+  `DJANGO_SETTINGS_MODULE` from the env before importing.
+- `requirements-dev.txt` declares `setuptools>=68` so the new
+  regression test runs on Python 3.12+ (where setuptools is no
+  longer bundled with the stdlib).
+
 ## [0.4.0] - 2026-05-30
 
 Ontology generation from declared `RDFModel` classes — delivering on

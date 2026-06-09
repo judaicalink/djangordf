@@ -183,6 +183,20 @@ def test_update_raises_on_http_error():
             backend.update("CLEAR DEFAULT")
 
 
+def test_update_returns_the_underlying_response():
+    """Callers need access to the HTTP status / headers to tell e.g.
+    200 from 204; the wrapper must forward the ``requests.Response``."""
+    from djangordf.backends.fuseki import FusekiBackend
+    backend = FusekiBackend(endpoint="http://example.org/sparql")
+    response = _mock_response(status=204, text="")
+    with mock.patch.object(
+        backend.session, "post", return_value=response,
+    ):
+        result = backend.update("CLEAR DEFAULT")
+    assert result is response
+    assert result.status_code == 204
+
+
 # -- add / remove / clear ---------------------------------------------------
 
 

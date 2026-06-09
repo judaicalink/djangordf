@@ -1,6 +1,7 @@
 Django>=3.2
 rdflib>=6.0
 requests>=2.25
+setuptools>=68
 flake8>=6.0
 pytest>=9.0.3
 pytest-django>=4.11
