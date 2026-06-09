@@ -393,42 +393,98 @@ class RDFManager:
 class RDFQuerySet:
     """Lazy queryset over an ``RDFManager``.
 
-    Materialises on iteration / ``len`` / ``count`` / ``first`` by
-    issuing ``SELECT DISTINCT ?s`` to enumerate matching subjects, then
-    calling ``manager.get(s)`` per subject. Each subject is therefore
-    fetched in a separate CONSTRUCT — clear and correct for the walking
-    skeleton; an N+1 collapse can be a later optimisation.
+    Materialises on iteration / ``len`` / ``count`` / ``first`` /
+    ``__getitem__(int)`` by issuing ``SELECT DISTINCT ?s`` to
+    enumerate matching subjects, then calling ``manager.get(s)`` per
+    subject. ``order_by`` and slicing are both chainable and lazy —
+    they return new querysets carrying ``ORDER BY`` / ``LIMIT`` /
+    ``OFFSET`` state that the SPARQL builder honours on next
+    materialisation.
     """
 
-    def __init__(self, manager: RDFManager, q=None):
+    def __init__(
+        self,
+        manager: RDFManager,
+        q=None,
+        order_by: tuple = (),
+        limit=None,
+        offset=None,
+    ):
         self._manager = manager
         self._q = q
+        self._order_by = tuple(order_by)
+        self._limit = limit
+        self._offset = offset
         self._results_cache = None
+
+    def _clone(self, **overrides):
+        defaults = dict(
+            q=self._q,
+            order_by=self._order_by,
+            limit=self._limit,
+            offset=self._offset,
+        )
+        defaults.update(overrides)
+        return RDFQuerySet(self._manager, **defaults)
+
+    # -- chainable surface --------------------------------------------------
+
+    def order_by(self, *fields):
+        return self._clone(order_by=tuple(fields))
+
+    # -- SPARQL construction ------------------------------------------------
 
     def _build_subject_sparql(self) -> str:
         model = self._manager.model_class
         graph_iri = model._meta.graph_iri
         class_iri = model._meta.class_iri
+        counter = [0]
+
         parts = [f"?s a <{class_iri}> ."]
         if self._q is not None:
-            counter = [0]
             fragment = self._manager._emit_q(
                 self._q, "?s", model, counter,
             )
             if fragment:
                 parts.append(fragment)
+
+        select_vars = ["?s"]
+        order_tokens = []
+        for field in self._order_by:
+            descending = field.startswith("-")
+            attr = field.lstrip("-")
+            prop = self._manager._resolve_segment(model, attr)
+            counter[0] += 1
+            ord_var = f"?ord_{counter[0]}"
+            parts.append(
+                _render_triple("?s", prop.predicate, ord_var)
+            )
+            select_vars.append(ord_var)
+            order_tokens.append(
+                f"DESC({ord_var})" if descending else ord_var
+            )
+
         body = " ".join(parts)
-        return (
-            f"SELECT DISTINCT ?s WHERE {{ "
-            f"GRAPH <{graph_iri}> {{ {body} }} }}"
+        select = "SELECT DISTINCT " + " ".join(select_vars)
+        sparql = (
+            f"{select} WHERE {{ GRAPH <{graph_iri}> {{ {body} }} }}"
         )
+        if order_tokens:
+            sparql += " ORDER BY " + " ".join(order_tokens)
+        if self._limit is not None:
+            sparql += f" LIMIT {self._limit}"
+        if self._offset is not None:
+            sparql += f" OFFSET {self._offset}"
+        return sparql
+
+    # -- materialisation ----------------------------------------------------
 
     def _fetch(self):
         if self._results_cache is not None:
             return self._results_cache
         sparql = self._build_subject_sparql()
         result = self._manager.backend.query(sparql)
-        subjects = [row[0] for row in result]
+        subjects = list(dict.fromkeys(row[0] for row in result))
         self._results_cache = [self._manager.get(s) for s in subjects]
         return self._results_cache
 
@@ -442,5 +498,49 @@ class RDFQuerySet:
         return len(self)
 
     def first(self):
-        items = self._fetch()
+        items = list(self._clone(limit=1))
         return items[0] if items else None
+
+    # -- slicing / indexing -------------------------------------------------
+
+    def __getitem__(self, key):
+        if isinstance(key, slice):
+            if key.step is not None:
+                raise TypeError(
+                    "RDFQuerySet does not support step in slicing"
+                )
+            start = key.start or 0
+            stop = key.stop
+            if start < 0 or (stop is not None and stop < 0):
+                raise IndexError(
+                    "RDFQuerySet does not support negative indices"
+                )
+            new_offset = (self._offset or 0) + start
+            if stop is None:
+                new_limit = self._limit
+            else:
+                window = stop - start
+                if window < 0:
+                    window = 0
+                if self._limit is not None:
+                    remaining = max(self._limit - start, 0)
+                    new_limit = min(window, remaining)
+                else:
+                    new_limit = window
+            return self._clone(
+                limit=new_limit,
+                offset=new_offset if new_offset else None,
+            )
+        if isinstance(key, int):
+            if key < 0:
+                raise IndexError(
+                    "RDFQuerySet does not support negative indices"
+                )
+            items = list(self[key:key + 1])
+            if not items:
+                raise IndexError(key)
+            return items[0]
+        raise TypeError(
+            f"RDFQuerySet indices must be int or slice, not "
+            f"{type(key).__name__}"
+        )
