@@ -7,7 +7,7 @@ property's ``from_rdf``. ``all`` and ``filter`` return a lazy
 ``RDFQuerySet`` that only hits the store on iteration or terminal
 methods (``len``, ``count``, ``first``).
 """
-from typing import List, Tuple
+from typing import List
 
 from rdflib import BNode, Literal, URIRef
 
@@ -44,6 +44,25 @@ def _term(term):
 def _format_triple(triple):
     s, p, o = triple
     return f"{_term(s)} {_term(p)} {_term(o)} ."
+
+
+def _render_sparql_term(term) -> str:
+    """Render a SPARQL term. ``?var`` strings pass through verbatim;
+    anything else is rdflib-serialised via ``.n3()``."""
+    if isinstance(term, str) and term.startswith("?"):
+        return term
+    return term.n3()
+
+
+def _render_triple(s, p, o) -> str:
+    """Render a triple pattern. Predicate is always rendered as an
+    angle-bracketed IRI; subject and object go through
+    :func:`_render_sparql_term`."""
+    return (
+        f"{_render_sparql_term(s)} "
+        f"<{p}> "
+        f"{_render_sparql_term(o)} ."
+    )
 
 
 class RDFManager:
@@ -192,68 +211,99 @@ class RDFManager:
             setattr(instance, attr, prop.from_rdf(graph, subject))
 
     def all(self) -> "RDFQuerySet":
-        return RDFQuerySet(self, [])
+        return RDFQuerySet(self)
 
-    def filter(self, **kwargs) -> "RDFQuerySet":
-        triple_patterns: List[Tuple[object, URIRef, object]] = []
-        filter_clauses: List[str] = []
-        var_counter = 0
-        for key, value in kwargs.items():
-            raw_segments = key.split("__")
-            path_segments, suffix = _peel_lookup_suffix(raw_segments)
-            current_var: object = "?s"
-            current_cls = self.model_class
-            for i, segment in enumerate(path_segments):
-                prop = self._resolve_segment(current_cls, segment)
-                is_reverse = getattr(prop, "reverse", False)
-                if i == len(path_segments) - 1:
-                    if suffix == "exact":
-                        obj_term = self._object_term(prop, value)
-                        if is_reverse:
-                            triple_patterns.append(
-                                (obj_term, prop.predicate, current_var)
-                            )
-                        else:
-                            triple_patterns.append(
-                                (current_var, prop.predicate, obj_term)
-                            )
-                    else:
-                        var_counter += 1
-                        terminal_var = f"?v{var_counter}"
-                        if is_reverse:
-                            triple_patterns.append(
-                                (terminal_var, prop.predicate, current_var)
-                            )
-                        else:
-                            triple_patterns.append(
-                                (current_var, prop.predicate, terminal_var)
-                            )
-                        filter_clauses.append(
-                            self._build_filter_clause(
-                                terminal_var, suffix, value, prop
-                            )
+    def filter(self, *q_args, **kwargs) -> "RDFQuerySet":
+        from .query import Q
+        if not q_args and not kwargs:
+            return RDFQuerySet(self)
+        top = Q(*q_args, **kwargs)
+        return RDFQuerySet(self, q=top)
+
+    def _emit_leaf(self, key, value, current_var, current_cls, counter):
+        """Render one ``(key, value)`` filter leaf as a list of SPARQL
+        pattern strings (one per triple / FILTER). ``counter`` is a
+        single-element list so callers share the same monotonic
+        variable-name source across the entire Q walk."""
+        raw_segments = key.split("__")
+        path_segments, suffix = _peel_lookup_suffix(raw_segments)
+        lines: List[str] = []
+        for i, segment in enumerate(path_segments):
+            prop = self._resolve_segment(current_cls, segment)
+            is_reverse = getattr(prop, "reverse", False)
+            if i == len(path_segments) - 1:
+                if suffix == "exact":
+                    obj_term = self._object_term(prop, value)
+                    if is_reverse:
+                        lines.append(
+                            _render_triple(obj_term, prop.predicate, current_var)
                         )
-                    break
-                from .properties import ObjectProperty
-                if not isinstance(prop, ObjectProperty):
-                    raise ValueError(
-                        f"non-terminal lookup segment {segment!r} on "
-                        f"{current_cls.__name__} is not an ObjectProperty; "
-                        f"cannot span"
-                    )
-                var_counter += 1
-                next_var = f"?v{var_counter}"
-                if is_reverse:
-                    triple_patterns.append(
-                        (next_var, prop.predicate, current_var)
-                    )
+                    else:
+                        lines.append(
+                            _render_triple(current_var, prop.predicate, obj_term)
+                        )
                 else:
-                    triple_patterns.append(
-                        (current_var, prop.predicate, next_var)
+                    counter[0] += 1
+                    terminal_var = f"?v{counter[0]}"
+                    if is_reverse:
+                        lines.append(
+                            _render_triple(terminal_var, prop.predicate, current_var)
+                        )
+                    else:
+                        lines.append(
+                            _render_triple(current_var, prop.predicate, terminal_var)
+                        )
+                    lines.append(
+                        f"FILTER("
+                        f"{self._build_filter_clause(terminal_var, suffix, value, prop)}"
+                        f")"
                     )
-                current_var = next_var
-                current_cls = prop.target_class
-        return RDFQuerySet(self, triple_patterns, filter_clauses)
+                break
+            from .properties import ObjectProperty
+            if not isinstance(prop, ObjectProperty):
+                raise ValueError(
+                    f"non-terminal lookup segment {segment!r} on "
+                    f"{current_cls.__name__} is not an ObjectProperty; "
+                    f"cannot span"
+                )
+            counter[0] += 1
+            next_var = f"?v{counter[0]}"
+            if is_reverse:
+                lines.append(
+                    _render_triple(next_var, prop.predicate, current_var)
+                )
+            else:
+                lines.append(
+                    _render_triple(current_var, prop.predicate, next_var)
+                )
+            current_var = next_var
+            current_cls = prop.target_class
+        return lines
+
+    def _emit_q(self, q, current_var, current_cls, counter) -> str:
+        """Recursively render a ``Q`` tree as a SPARQL fragment string."""
+        from .query import Q
+        child_fragments: List[str] = []
+        for child in q.children:
+            if isinstance(child, Q):
+                child_fragments.append(
+                    self._emit_q(child, current_var, current_cls, counter)
+                )
+            else:
+                key, value = child
+                lines = self._emit_leaf(
+                    key, value, current_var, current_cls, counter
+                )
+                child_fragments.append(" ".join(lines))
+        if q.connector == Q.OR:
+            body = " UNION ".join(
+                f"{{ {f} }}" for f in child_fragments if f
+            )
+        else:
+            body = " ".join(f for f in child_fragments if f)
+        if q.negated:
+            return f"FILTER NOT EXISTS {{ {body} }}"
+        return body
 
     def _build_filter_clause(self, var, suffix, value, prop) -> str:
         """Render the SPARQL FILTER expression for a suffix lookup
@@ -350,38 +400,28 @@ class RDFQuerySet:
     skeleton; an N+1 collapse can be a later optimisation.
     """
 
-    def __init__(self, manager: RDFManager, triple_patterns, filter_clauses=()):
+    def __init__(self, manager: RDFManager, q=None):
         self._manager = manager
-        self._triple_patterns = list(triple_patterns)
-        self._filter_clauses = list(filter_clauses)
+        self._q = q
         self._results_cache = None
 
     def _build_subject_sparql(self) -> str:
         model = self._manager.model_class
         graph_iri = model._meta.graph_iri
         class_iri = model._meta.class_iri
-        patterns = [f"?s a <{class_iri}> ."]
-        for subject, predicate, obj_term in self._triple_patterns:
-            patterns.append(
-                f"{self._render_term(subject)} "
-                f"<{predicate}> "
-                f"{self._render_term(obj_term)} ."
+        parts = [f"?s a <{class_iri}> ."]
+        if self._q is not None:
+            counter = [0]
+            fragment = self._manager._emit_q(
+                self._q, "?s", model, counter,
             )
-        for expr in self._filter_clauses:
-            patterns.append(f"FILTER({expr})")
-        body = " ".join(patterns)
+            if fragment:
+                parts.append(fragment)
+        body = " ".join(parts)
         return (
             f"SELECT DISTINCT ?s WHERE {{ "
             f"GRAPH <{graph_iri}> {{ {body} }} }}"
         )
-
-    @staticmethod
-    def _render_term(term) -> str:
-        """Render a SPARQL term. ``?var`` strings pass through verbatim;
-        anything else is rdflib-serialised via ``.n3()``."""
-        if isinstance(term, str) and term.startswith("?"):
-            return term
-        return term.n3()
 
     def _fetch(self):
         if self._results_cache is not None:
