@@ -5,6 +5,43 @@ All notable changes to djangordf will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-06-09
+
+Inverse properties on `ObjectProperty`. Declaring
+`broader = ObjectProperty("self", inverse="narrower")` now keeps both
+directions of the relationship in the triple store and lets callers
+read the back-pointer as a Python attribute.
+
+### Added
+- `ObjectProperty(..., inverse="<attr-name>")` keyword. The string
+  names a property on the target class; lazy `inverse_property` and
+  `inverse_predicate` accessors resolve it through the model registry
+  on first access and raise `ValueError` only when needed.
+- Mirror semantics in `RDFManager.save`: each save composes a
+  multi-statement SPARQL update that strips stale mirror triples on
+  any previous target (`WITH <graph> DELETE { ?s <inverse> <self> }`)
+  and writes the new forward + mirror triples in one `INSERT DATA`
+  block. Reassigning `child.broader` from one parent to another now
+  keeps the matching `narrower` back-pointers in sync.
+- Mirror strips in `RDFManager.delete`: every inverse predicate the
+  model declares gets its own `DELETE { ?s <inverse> <self> }` pass,
+  so deleting an instance removes the back-pointers from every
+  referenced target.
+- `generate_ontology()` emits `(predicate, owl:inverseOf, inverse_predicate)`
+  once per declared pair (deduplicated lexicographically) so the
+  serialised schema matches the runtime semantics.
+- Quickstart docs show the new declaration and the back-read pattern.
+
+### Notes
+- `WITH <graph>` in SPARQL 1.1 Update scopes only the directly
+  following Modify operation. The implementation now prefixes every
+  `DELETE WHERE` with its own `WITH <graph>` so the inverse-DELETEs
+  hit the configured graph; an earlier draft had silently routed
+  them to the default graph.
+- Inverse handling is implemented for `ObjectProperty` only.
+  `URIProperty`/`DataProperty`/`LangStringProperty` deliberately stay
+  out of scope (`inverse` makes sense for instance-to-instance links).
+
 ## [0.4.1] - 2026-06-09
 
 Bug-fix release responding to production feedback from the Haskala
