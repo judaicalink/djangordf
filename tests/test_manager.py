@@ -222,7 +222,7 @@ def test_filter_by_exact_value_returns_subset(fresh_backend):
 def test_filter_unknown_attribute_raises(fresh_backend):
     Term = _term_model("TermFilterUnknown")
     with pytest.raises(ValueError):
-        Term.objects.filter(nope="x")
+        list(Term.objects.filter(nope="x"))
 
 
 def test_queryset_count_matches_len(fresh_backend):
@@ -367,14 +367,14 @@ def test_filter_combines_simple_and_spanning_kwargs(fresh_backend):
 def test_filter_unknown_segment_on_path_raises(fresh_backend):
     Term = _lookup_term_model("LookupBadSegment")
     with pytest.raises(ValueError):
-        Term.objects.filter(broader__no_such_attr="x")
+        list(Term.objects.filter(broader__no_such_attr="x"))
 
 
 def test_filter_nonterminal_segment_must_be_objectproperty(fresh_backend):
     """`title` is a DataProperty; using it as a non-terminal hop must fail."""
     Term = _lookup_term_model("LookupNonTerm")
     with pytest.raises(ValueError):
-        Term.objects.filter(title__broader="x")
+        list(Term.objects.filter(title__broader="x"))
 
 
 def test_filter_simple_single_segment_still_works(fresh_backend):
@@ -390,7 +390,7 @@ def test_filter_simple_single_segment_still_works(fresh_backend):
 def test_filter_first_segment_must_exist_on_model(fresh_backend):
     Term = _lookup_term_model("LookupBadFirst")
     with pytest.raises(ValueError):
-        Term.objects.filter(no_such_attr__title="x")
+        list(Term.objects.filter(no_such_attr__title="x"))
 
 
 # -- lookup suffixes --------------------------------------------------------

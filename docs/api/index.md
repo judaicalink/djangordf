@@ -10,6 +10,7 @@ implementation detail.
 models
 properties
 manager
+query
 namespaces
 skos
 ontology
