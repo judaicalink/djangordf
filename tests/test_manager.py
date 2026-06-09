@@ -391,3 +391,139 @@ def test_filter_first_segment_must_exist_on_model(fresh_backend):
     Term = _lookup_term_model("LookupBadFirst")
     with pytest.raises(ValueError):
         Term.objects.filter(no_such_attr__title="x")
+
+
+# -- lookup suffixes --------------------------------------------------------
+
+def _suffix_term_model(name):
+    """Term used by the lookup-suffix tests: string title plus an
+    integer count predicate so we can exercise numeric comparisons."""
+    from djangordf import DataProperty, ObjectProperty, RDFModel
+
+    Term = type(
+        name,
+        (RDFModel,),
+        {
+            "title": DataProperty(
+                predicate=URIRef("http://example.org/title"),
+            ),
+            "count": DataProperty(
+                predicate=URIRef("http://example.org/count"),
+                datatype=XSD.integer,
+            ),
+            "broader": ObjectProperty("self", many=True),
+        },
+    )
+    return Term
+
+
+def test_filter_iexact_matches_case_insensitively(fresh_backend):
+    Term = _suffix_term_model("SfxIexact")
+    Term.objects.create(title="Buch")
+    Term.objects.create(title="buch")
+    Term.objects.create(title="other")
+    matches = sorted(t.title for t in Term.objects.filter(title__iexact="BUCH"))
+    assert matches == ["Buch", "buch"]
+
+
+def test_filter_contains_substring(fresh_backend):
+    Term = _suffix_term_model("SfxContains")
+    Term.objects.create(title="Roman")
+    Term.objects.create(title="Romance")
+    Term.objects.create(title="Buch")
+    matches = sorted(t.title for t in Term.objects.filter(title__contains="Rom"))
+    assert matches == ["Roman", "Romance"]
+
+
+def test_filter_icontains_substring_case_insensitive(fresh_backend):
+    Term = _suffix_term_model("SfxIContains")
+    Term.objects.create(title="Roman")
+    Term.objects.create(title="romance")
+    Term.objects.create(title="Buch")
+    matches = sorted(t.title for t in Term.objects.filter(title__icontains="ROM"))
+    assert matches == ["Roman", "romance"]
+
+
+def test_filter_startswith_and_istartswith(fresh_backend):
+    Term = _suffix_term_model("SfxStarts")
+    Term.objects.create(title="Buch")
+    Term.objects.create(title="buchstabe")
+    Term.objects.create(title="Other")
+    starts = sorted(t.title for t in Term.objects.filter(title__startswith="Buch"))
+    istarts = sorted(t.title for t in Term.objects.filter(title__istartswith="BUCH"))
+    assert starts == ["Buch"]
+    assert istarts == ["Buch", "buchstabe"]
+
+
+def test_filter_endswith_and_iendswith(fresh_backend):
+    Term = _suffix_term_model("SfxEnds")
+    Term.objects.create(title="Hand-Buch")
+    Term.objects.create(title="StadtBUCH")
+    Term.objects.create(title="Other")
+    ends = sorted(t.title for t in Term.objects.filter(title__endswith="Buch"))
+    iends = sorted(t.title for t in Term.objects.filter(title__iendswith="buch"))
+    assert ends == ["Hand-Buch"]
+    assert iends == ["Hand-Buch", "StadtBUCH"]
+
+
+def test_filter_in_membership_strings(fresh_backend):
+    Term = _suffix_term_model("SfxInStr")
+    Term.objects.create(title="A")
+    Term.objects.create(title="B")
+    Term.objects.create(title="C")
+    matches = sorted(t.title for t in Term.objects.filter(title__in=["A", "C"]))
+    assert matches == ["A", "C"]
+
+
+def test_filter_in_membership_integers(fresh_backend):
+    Term = _suffix_term_model("SfxInInt")
+    Term.objects.create(count=1)
+    Term.objects.create(count=2)
+    Term.objects.create(count=3)
+    matches = sorted(t.count for t in Term.objects.filter(count__in=[1, 3]))
+    assert matches == [1, 3]
+
+
+def test_filter_gt_gte_lt_lte_numeric(fresh_backend):
+    Term = _suffix_term_model("SfxNumeric")
+    Term.objects.create(count=1)
+    Term.objects.create(count=5)
+    Term.objects.create(count=10)
+    assert sorted(t.count for t in Term.objects.filter(count__gt=4)) == [5, 10]
+    assert sorted(t.count for t in Term.objects.filter(count__gte=5)) == [5, 10]
+    assert sorted(t.count for t in Term.objects.filter(count__lt=10)) == [1, 5]
+    assert sorted(t.count for t in Term.objects.filter(count__lte=5)) == [1, 5]
+
+
+def test_filter_suffix_composes_with_cross_class_span(fresh_backend):
+    Term = _suffix_term_model("SfxCompose")
+    parent = Term.objects.create(title="Parent of Books")
+    Term.objects.create(title="ChildA", broader=[parent])
+    other = Term.objects.create(title="Other Parent")
+    Term.objects.create(title="ChildB", broader=[other])
+    matches = sorted(
+        t.title for t in Term.objects.filter(broader__title__icontains="books")
+    )
+    assert matches == ["ChildA"]
+
+
+def test_filter_property_named_like_a_suffix_not_peeled(fresh_backend):
+    """A model with an attribute literally called ``exact`` must not
+    have its name stolen by the suffix peeler."""
+    from djangordf import DataProperty, RDFModel
+
+    class TermWithExactAttr(RDFModel):
+        exact = DataProperty(
+            predicate=URIRef("http://example.org/exact"),
+        )
+
+    TermWithExactAttr.objects.create(exact="hit")
+    TermWithExactAttr.objects.create(exact="miss")
+    matches = [t.exact for t in TermWithExactAttr.objects.filter(exact="hit")]
+    assert matches == ["hit"]
+
+
+def test_filter_in_with_non_iterable_raises(fresh_backend):
+    Term = _suffix_term_model("SfxInNonIter")
+    with pytest.raises(TypeError):
+        list(Term.objects.filter(count__in=42))
