@@ -164,6 +164,15 @@ Available suffixes:
 - `__gt`, `__gte`, `__lt`, `__lte` — comparisons; the value is
   serialised through the property's datatype so
   `count__gt=4` produces `"4"^^xsd:integer` in SPARQL.
+- `__regex`, `__iregex` — POSIX regex match via SPARQL `REGEX`; the
+  `i` variant adds the case-insensitive flag.
+- `__isnull` — boolean; `True` matches subjects that have no triple
+  for this predicate (`FILTER NOT EXISTS`), `False` matches those
+  that do.
+- `__year`, `__month`, `__day`, `__hour`, `__minute`, `__second` —
+  extract the part from an `xsd:dateTime` literal via SPARQL's
+  `YEAR()` / `MONTH()` / `DAY()` / `HOURS()` / `MINUTES()` /
+  `SECONDS()` builtins and compare against an integer.
 
 Suffix detection is conservative: a suffix is recognised only when
 the key has at least two `__`-separated segments. A model that
