@@ -659,6 +659,194 @@ def test_slice_composes_with_prior_slice(fresh_backend):
     assert counts == [3, 4, 5]
 
 
+# -- regex / isnull / datetime suffixes ------------------------------------
+
+def _regex_term_model(name):
+    from djangordf import DataProperty, RDFModel
+
+    return type(
+        name,
+        (RDFModel,),
+        {
+            "title": DataProperty(
+                predicate=URIRef("http://example.org/title"),
+            ),
+            "count": DataProperty(
+                predicate=URIRef("http://example.org/count"),
+                datatype=XSD.integer,
+            ),
+            "born": DataProperty(
+                predicate=URIRef("http://example.org/born"),
+                datatype=XSD.dateTime,
+            ),
+        },
+    )
+
+
+def test_filter_regex_matches(fresh_backend):
+    Term = _regex_term_model("SfxRegex")
+    Term.objects.create(title="Roman")
+    Term.objects.create(title="Romance")
+    Term.objects.create(title="Buch")
+    matches = sorted(
+        t.title for t in Term.objects.filter(title__regex="^Rom.*$")
+    )
+    assert matches == ["Roman", "Romance"]
+
+
+def test_filter_iregex_matches_case_insensitive(fresh_backend):
+    Term = _regex_term_model("SfxIRegex")
+    Term.objects.create(title="ROMAN")
+    Term.objects.create(title="roman")
+    Term.objects.create(title="Buch")
+    matches = sorted(
+        t.title for t in Term.objects.filter(title__iregex="^rom.*$")
+    )
+    assert matches == ["ROMAN", "roman"]
+
+
+def test_filter_isnull_true_matches_subjects_without_predicate(fresh_backend):
+    Term = _regex_term_model("SfxIsnullTrue")
+    Term.objects.create(title="HasTitle")
+    Term.objects.create(count=42)
+    matches = list(Term.objects.filter(title__isnull=True))
+    assert len(matches) == 1
+    assert matches[0].count == 42
+
+
+def test_filter_isnull_false_matches_subjects_with_predicate(fresh_backend):
+    Term = _regex_term_model("SfxIsnullFalse")
+    Term.objects.create(title="HasTitle")
+    Term.objects.create(count=42)
+    matches = list(Term.objects.filter(title__isnull=False))
+    assert len(matches) == 1
+    assert matches[0].title == "HasTitle"
+
+
+def test_filter_isnull_with_reverse_property(fresh_backend):
+    """`__isnull` on a reverse property: True ⇒ no triple points back."""
+    from djangordf import DataProperty, ObjectProperty, RDFModel
+
+    class IsnullBook(RDFModel):
+        title = DataProperty(
+            predicate=URIRef("http://example.org/title"),
+        )
+        author = ObjectProperty(
+            "IsnullAuthor",
+            predicate=URIRef("http://example.org/author"),
+        )
+
+        class Meta:
+            class_iri = "http://example.org/Book"
+
+    class IsnullAuthor(RDFModel):
+        books = ObjectProperty(
+            IsnullBook,
+            predicate=URIRef("http://example.org/author"),
+            many=True,
+            reverse=True,
+        )
+
+        class Meta:
+            class_iri = "http://example.org/Author"
+
+    childless = IsnullAuthor.objects.create()
+    parent = IsnullAuthor.objects.create()
+    IsnullBook.objects.create(title="hers", author=parent)
+
+    no_books = list(IsnullAuthor.objects.filter(books__isnull=True))
+    with_books = list(IsnullAuthor.objects.filter(books__isnull=False))
+    assert [a.iri for a in no_books] == [URIRef(childless.iri)]
+    assert [a.iri for a in with_books] == [URIRef(parent.iri)]
+
+
+def test_filter_year_month_day(fresh_backend):
+    from datetime import datetime
+
+    Term = _regex_term_model("SfxDate")
+    Term.objects.create(title="A", born=datetime(2024, 6, 15, 9, 30, 45))
+    Term.objects.create(title="B", born=datetime(2024, 7, 15, 9, 30, 45))
+    Term.objects.create(title="C", born=datetime(2023, 6, 15, 9, 30, 45))
+
+    by_year = sorted(t.title for t in Term.objects.filter(born__year=2024))
+    by_month = sorted(t.title for t in Term.objects.filter(born__month=6))
+    by_day = sorted(t.title for t in Term.objects.filter(born__day=15))
+    assert by_year == ["A", "B"]
+    assert by_month == ["A", "C"]
+    assert by_day == ["A", "B", "C"]
+
+
+def test_filter_hour_minute_second(fresh_backend):
+    from datetime import datetime
+
+    Term = _regex_term_model("SfxTime")
+    Term.objects.create(title="A", born=datetime(2024, 6, 15, 9, 30, 45))
+    Term.objects.create(title="B", born=datetime(2024, 6, 15, 10, 30, 45))
+    Term.objects.create(title="C", born=datetime(2024, 6, 15, 9, 31, 45))
+
+    by_hour = sorted(t.title for t in Term.objects.filter(born__hour=9))
+    by_minute = sorted(t.title for t in Term.objects.filter(born__minute=30))
+    by_second = sorted(t.title for t in Term.objects.filter(born__second=45))
+    assert by_hour == ["A", "C"]
+    assert by_minute == ["A", "B"]
+    assert by_second == ["A", "B", "C"]
+
+
+def test_filter_property_named_year_not_peeled(fresh_backend):
+    """A model with an attribute literally called ``year`` must not
+    have its name stolen by the suffix peeler."""
+    from djangordf import DataProperty, RDFModel
+
+    class TermWithYearAttr(RDFModel):
+        year = DataProperty(
+            predicate=URIRef("http://example.org/year"),
+            datatype=XSD.integer,
+        )
+
+    TermWithYearAttr.objects.create(year=1984)
+    TermWithYearAttr.objects.create(year=2024)
+    matches = [t.year for t in TermWithYearAttr.objects.filter(year=1984)]
+    assert matches == [1984]
+
+
+def test_filter_extra_suffix_composes_with_cross_class_span(fresh_backend):
+    from djangordf import DataProperty, ObjectProperty, RDFModel
+
+    class TermXSfx(RDFModel):
+        title = DataProperty(
+            predicate=URIRef("http://example.org/title"),
+        )
+        broader = ObjectProperty("self", many=True)
+
+    parent = TermXSfx.objects.create(title="parent_Buch")
+    TermXSfx.objects.create(title="ChildA", broader=[parent])
+    other = TermXSfx.objects.create(title="not relevant")
+    TermXSfx.objects.create(title="ChildB", broader=[other])
+
+    matches = sorted(
+        t.title for t in TermXSfx.objects.filter(
+            broader__title__iregex="^parent_"
+        )
+    )
+    assert matches == ["ChildA"]
+
+
+def test_filter_extra_suffix_composes_with_q(fresh_backend):
+    from djangordf import Q
+
+    Term = _regex_term_model("SfxQ")
+    Term.objects.create(title="cats", count=1)
+    Term.objects.create(title="DOGS", count=2)
+    Term.objects.create(title="birds", count=3)
+
+    matches = sorted(
+        t.title for t in Term.objects.filter(
+            Q(title__iregex="^c") | Q(title__regex="^DOGS$")
+        )
+    )
+    assert matches == ["DOGS", "cats"]
+
+
 def test_order_by_chains_with_filter_and_slice(fresh_backend):
     Term = _ordering_term_model("OrdComposed")
     for i in range(6):
