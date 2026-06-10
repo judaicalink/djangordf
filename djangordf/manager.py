@@ -24,6 +24,10 @@ _KNOWN_LOOKUP_SUFFIXES = frozenset({
     "endswith", "iendswith",
     "in",
     "gt", "gte", "lt", "lte",
+    "regex", "iregex",
+    "isnull",
+    "year", "month", "day",
+    "hour", "minute", "second",
 })
 
 
@@ -242,6 +246,23 @@ class RDFManager:
                         lines.append(
                             _render_triple(current_var, prop.predicate, obj_term)
                         )
+                elif suffix == "isnull":
+                    counter[0] += 1
+                    anon_var = f"?v{counter[0]}"
+                    if is_reverse:
+                        triple = _render_triple(
+                            anon_var, prop.predicate, current_var,
+                        )
+                    else:
+                        triple = _render_triple(
+                            current_var, prop.predicate, anon_var,
+                        )
+                    if bool(value):
+                        lines.append(
+                            f"FILTER NOT EXISTS {{ {triple} }}"
+                        )
+                    else:
+                        lines.append(triple)
                 else:
                     counter[0] += 1
                     terminal_var = f"?v{counter[0]}"
@@ -346,6 +367,20 @@ class RDFManager:
                 self._object_term(prop, item).n3() for item in items
             )
             return f"{var} IN ({rendered})"
+        if suffix == "regex":
+            return f"REGEX(STR({var}), {Literal(str(value)).n3()})"
+        if suffix == "iregex":
+            return f"REGEX(STR({var}), {Literal(str(value)).n3()}, \"i\")"
+        if suffix in {"year", "month", "day", "hour", "minute", "second"}:
+            fn = {
+                "year": "YEAR",
+                "month": "MONTH",
+                "day": "DAY",
+                "hour": "HOURS",
+                "minute": "MINUTES",
+                "second": "SECONDS",
+            }[suffix]
+            return f"{fn}({var}) = {Literal(int(value)).n3()}"
         op = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[suffix]
         return f"{var} {op} {self._object_term(prop, value).n3()}"
 
