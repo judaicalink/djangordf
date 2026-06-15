@@ -22,6 +22,8 @@ pytestmark = pytest.mark.fuseki
 FUSEKI_ENDPOINT = os.environ.get(
     "DJANGORDF_FUSEKI_ENDPOINT", "http://localhost:3030/ds"
 )
+FUSEKI_USER = os.environ.get("DJANGORDF_FUSEKI_USER", "admin")
+FUSEKI_PASSWORD = os.environ.get("DJANGORDF_FUSEKI_PASSWORD", "admin")
 
 
 @pytest.fixture
@@ -29,7 +31,11 @@ def backend():
     """Yield a FusekiBackend pointed at the live instance, with every
     named graph wiped before and after the test."""
     from djangordf.backends.fuseki import FusekiBackend
-    backend = FusekiBackend(endpoint=FUSEKI_ENDPOINT)
+    backend = FusekiBackend(
+        endpoint=FUSEKI_ENDPOINT,
+        user=FUSEKI_USER,
+        password=FUSEKI_PASSWORD,
+    )
     backend.update("CLEAR ALL")
     yield backend
     backend.update("CLEAR ALL")
@@ -128,6 +134,8 @@ def test_rdfmodel_roundtrip_against_live_fuseki(settings, backend):
     settings.DJANGORDF_BACKEND = {
         "class": "djangordf.backends.fuseki.FusekiBackend",
         "endpoint": FUSEKI_ENDPOINT,
+        "user": FUSEKI_USER,
+        "password": FUSEKI_PASSWORD,
     }
     settings.DJANGORDF_DEFAULT_NAMESPACE = "http://example.org/d/"
     settings.DJANGORDF_DEFAULT_GRAPH = "http://example.org/g"
