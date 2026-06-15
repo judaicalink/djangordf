@@ -14,5 +14,6 @@ query
 namespaces
 skos
 ontology
+loaders
 backends
 ```

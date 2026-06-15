@@ -331,3 +331,36 @@ Programmatic access goes through {func}`djangordf.ontology.generate_ontology`,
 which returns an `rdflib.Graph` containing the `owl:Class`,
 `rdfs:subClassOf`, `rdfs:domain`/`rdfs:range`, and cardinality
 restriction triples derived from your `RDFModel` declarations.
+
+## Importing external SKOS vocabularies
+
+Read-only RDF dumps from GND, AAT, Wikidata, or any other source can
+be ingested into the configured triple store via
+{func}`djangordf.load_skos`. By default the triples land in a separate
+named graph (`urn:djangordf:external` unless
+`DJANGORDF_EXTERNAL_GRAPH` overrides it) so external data stays
+isolated from `RDFModel`-managed data.
+
+```python
+from djangordf import load_skos, load_external_concept
+
+# From a local file (format inferred from the extension).
+n = load_skos("vocab.ttl")
+
+# From a URL (HTTP GET with content negotiation).
+n = load_skos("https://example.org/skos/buch.ttl")
+
+# Dereference a single concept IRI directly.
+n = load_external_concept("https://d-nb.info/gnd/4001577-9")
+
+# Override the format when the extension lies.
+n = load_skos("vocab.bin", format="turtle")
+
+# Direct an explicit named graph (overrides DJANGORDF_EXTERNAL_GRAPH).
+n = load_skos("vocab.ttl", graph="http://example.org/imported")
+```
+
+Each call returns the number of triples written. The loader accepts
+HTTP/HTTPS URLs, filesystem paths, and in-memory `rdflib.Graph`
+instances. Without an explicit `backend=`, the same process-wide
+backend that `RDFManager` uses receives the writes.

@@ -1,6 +1,7 @@
 from .backends import FusekiBackend, InMemoryBackend, TripleStoreBackend
 from .conf import get_backend
 from .functions import export_model_to_rdf
+from .loaders import load_external_concept, load_skos
 from .manager import RDFManager, RDFQuerySet
 from .models import RDFModel
 from .namespaces import LangString, NamespaceRegistry, registry
@@ -32,5 +33,7 @@ __all__ = [
     "export_model_to_rdf",
     "generate_ontology",
     "get_backend",
+    "load_external_concept",
+    "load_skos",
     "registry",
 ]
