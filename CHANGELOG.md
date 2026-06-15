@@ -5,6 +5,71 @@ All notable changes to djangordf will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-06-15
+
+Continuation of the §10 walkthrough. Six items since 0.7.0: reverse
+lookups, Q-object filter composition, queryset slicing / ordering /
+limit, the remaining lookup suffixes (regex, isnull, datetime parts),
+and bringing the Fuseki integration tests into the default CI matrix.
+
+### Added
+- **Reverse lookups** (#46) via `ObjectProperty(reverse=True)` — a
+  read-only virtual property whose triples live on a different
+  class's forward predicate. `to_rdf` returns nothing; `from_rdf`
+  reads via `graph.subjects()`; filter path-walker swaps subject and
+  object in the emitted triple. Composes with the lookup suffixes.
+- **Q objects** (#48): `Q(...) | Q(...)`, `Q(...) & Q(...)`, `~Q(...)`
+  for AND / OR / NOT filter composition. OR translates to SPARQL
+  `UNION`; NOT to `FILTER NOT EXISTS`. Positional Q args combine
+  AND-wise with kwargs in the same `filter()` call. `Q()` empty raises
+  `ValueError`; `bool(Q(...))` raises `TypeError`. Exported at the
+  package root: `from djangordf import Q`.
+- **Queryset ordering and slicing** (#50): `order_by(*fields)` with
+  leading `-` for descending, slicing (`qs[:N]`, `qs[A:B]`),
+  indexing (`qs[i]`) that materialises one item or raises
+  `IndexError`. Translates to SPARQL `ORDER BY`, `LIMIT`, `OFFSET`.
+  Chained slices compose; negative indices and steps raise.
+- **Additional lookup suffixes** (#52): `__regex`, `__iregex`,
+  `__isnull`, plus the datetime parts `__year`, `__month`, `__day`,
+  `__hour`, `__minute`, `__second`. Regex uses SPARQL `REGEX`;
+  `__isnull` uses `FILTER NOT EXISTS` / bound triple; datetime parts
+  use the SPARQL `YEAR()` / `MONTH()` / `DAY()` / `HOURS()` /
+  `MINUTES()` / `SECONDS()` builtins.
+- **Fuseki integration tests in default CI** (#54): a new
+  `fuseki-integration` job in `.github/workflows/tests.yml` boots a
+  `stain/jena-fuseki:5.1.0` service container and runs the
+  `@pytest.mark.fuseki` suite — nine integration tests covering every
+  public backend method plus an `RDFModel` create / get / delete
+  roundtrip against the live Fuseki.
+
+### Changed
+- `RDFQuerySet`'s internal pattern shape was refactored to be Q-driven
+  rather than the dual `triple_patterns` / `filter_clauses` lists.
+  Public API unchanged.
+- `filter()` is now fully lazy. Path / segment / suffix validation
+  raises on first iteration / `len()` / `count()` rather than at the
+  `filter()` call site, matching Django queryset semantics.
+- `RDFManager._object_term` handles `LangString` values directly and
+  temporarily flips `many=False` when serialising scalar filter
+  values for `many=True` properties.
+- Backend instances are cached at module level in `djangordf.conf`
+  so every `RDFManager` talks to the same triple store. Without this,
+  reverse lookups across two model classes never resolved because
+  each manager built its own in-memory backend. `reset_backend()` is
+  exposed for test isolation.
+- Quickstart documentation extended with subsections for every new
+  feature (Reverse-relation navigation, Composing filters with `Q`,
+  Ordering and slicing, the new lookup suffixes).
+
+### Fixed
+- `stain/jena-fuseki:5.5.0` was pinned in both `docker-compose.yml`
+  and the new CI service container; the tag does not exist on Docker
+  Hub. Repinned to `5.1.0` (#56).
+- Fuseki 5.x requires admin authentication on `/ds/update`. The
+  integration tests now pass `admin` / `admin` credentials via
+  `DJANGORDF_FUSEKI_USER` and `DJANGORDF_FUSEKI_PASSWORD` env vars
+  (defaults match the bundled compose).
+
 ## [0.7.0] - 2026-06-09
 
 Django-style lookup suffixes on `RDFManager.filter`. Callers can now
