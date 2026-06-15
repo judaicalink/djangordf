@@ -164,12 +164,123 @@ Available suffixes:
 - `__gt`, `__gte`, `__lt`, `__lte` — comparisons; the value is
   serialised through the property's datatype so
   `count__gt=4` produces `"4"^^xsd:integer` in SPARQL.
+- `__regex`, `__iregex` — POSIX regex match via SPARQL `REGEX`; the
+  `i` variant adds the case-insensitive flag.
+- `__isnull` — boolean; `True` matches subjects that have no triple
+  for this predicate (`FILTER NOT EXISTS`), `False` matches those
+  that do.
+- `__year`, `__month`, `__day`, `__hour`, `__minute`, `__second` —
+  extract the part from an `xsd:dateTime` literal via SPARQL's
+  `YEAR()` / `MONTH()` / `DAY()` / `HOURS()` / `MINUTES()` /
+  `SECONDS()` builtins and compare against an integer.
 
 Suffix detection is conservative: a suffix is recognised only when
 the key has at least two `__`-separated segments. A model that
 happens to declare a property called `exact` (or any other suffix
 name) keeps treating it as a property — `filter(exact="x")` is a
 single-segment key, so nothing is peeled.
+
+### Reverse-relation navigation
+
+`ObjectProperty(reverse=True)` declares a **read-only** virtual
+property: the triples live on a *different* class's forward
+predicate, and djangordf reads them "from the other end". Typical
+example: every `Book` has an `author`, and you want to navigate from
+an `Author` to their books without writing two predicates by hand:
+
+```python
+from rdflib import URIRef
+from djangordf import DataProperty, ObjectProperty, RDFModel
+
+
+class Book(RDFModel):
+    title = DataProperty(predicate=URIRef("http://example.org/title"))
+    author = ObjectProperty(
+        "Author", predicate=URIRef("http://example.org/author"),
+    )
+
+
+class Author(RDFModel):
+    books = ObjectProperty(
+        Book,
+        predicate=URIRef("http://example.org/author"),
+        many=True,
+        reverse=True,
+    )
+```
+
+Now `Author.objects.get(...)` hydrates `author.books` for free
+(djangordf issues a second CONSTRUCT for triples where the IRI is
+the *object*), and the filter path-walker swaps subject/object on
+any `reverse=True` segment:
+
+```python
+# Find authors who have a book whose title contains "cats".
+Author.objects.filter(books__title__icontains="cats")
+```
+
+`reverse=True` is mutually exclusive with `inverse=...` (which
+implies mirror writes — that contradicts read-only) and skips the
+SKOS-convention map: you always pass an explicit `predicate=`.
+
+### Composing filters with `Q`
+
+`Q` objects let you combine filter expressions with `|` (OR), `&`
+(AND), and `~` (NOT). Pass them positionally to `filter()` alongside
+or instead of the usual kwargs:
+
+```python
+from djangordf import Q
+
+# OR — SPARQL UNION.
+Term.objects.filter(Q(title="A") | Q(title="B"))
+
+# NOT — SPARQL FILTER NOT EXISTS.
+Term.objects.filter(~Q(title="bad"))
+
+# Mixing positional Q and kwargs — AND-combined.
+Term.objects.filter(Q(title="A") | Q(title="B"), count__gt=5)
+
+# Nested expressions.
+Term.objects.filter(
+    (Q(title="A") | Q(title="B")) & ~Q(count=1)
+)
+```
+
+Every `(key, value)` leaf inside a `Q` uses the same key syntax as
+flat `filter()`: simple attrs, `__`-separated paths through
+`ObjectProperty` hops, the 13 lookup suffixes, and reverse segments
+all compose with `Q` exactly as they do with kwargs.
+
+`Q()` with no arguments raises `ValueError`, and `bool(Q(...))`
+raises `TypeError` (to avoid silent coercions). Use only the
+operators above.
+
+### Ordering and slicing
+
+`order_by(*fields)` chains onto any queryset and emits a SPARQL
+`ORDER BY` on materialisation. Prefix a field with `-` for
+descending; pass no arguments to clear any existing ordering.
+
+```python
+ordered = Term.objects.all().order_by("title")
+descending = Term.objects.all().order_by("-count")
+multi = Term.objects.all().order_by("title", "-count")
+```
+
+Slicing returns a new lazy queryset configured with SPARQL `LIMIT`
+and `OFFSET`. Indexing materialises and returns a single instance:
+
+```python
+first_ten = Term.objects.all().order_by("count")[:10]
+page2 = Term.objects.filter(title__icontains="a").order_by("title")[10:20]
+top = Term.objects.all().order_by("-count")[0]   # forces materialisation
+```
+
+Negative indices and slice steps raise (`IndexError` / `TypeError`);
+chained slices compose correctly so `qs[10:20][2:4]` ends up as
+`OFFSET 12 LIMIT 2`. Cross-class ordering (`order_by("broader__title")`)
+is intentionally not supported in this release.
 
 ## Custom predicates and CURIE class IRIs
 

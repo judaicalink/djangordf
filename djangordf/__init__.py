@@ -5,6 +5,7 @@ from .manager import RDFManager, RDFQuerySet
 from .models import RDFModel
 from .namespaces import LangString, NamespaceRegistry, registry
 from .ontology import generate_ontology
+from .query import Q
 from .properties import (
     DataProperty,
     LangStringProperty,
@@ -22,6 +23,7 @@ __all__ = [
     "NamespaceRegistry",
     "ObjectProperty",
     "Property",
+    "Q",
     "RDFManager",
     "RDFModel",
     "RDFQuerySet",

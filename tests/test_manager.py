@@ -222,7 +222,7 @@ def test_filter_by_exact_value_returns_subset(fresh_backend):
 def test_filter_unknown_attribute_raises(fresh_backend):
     Term = _term_model("TermFilterUnknown")
     with pytest.raises(ValueError):
-        Term.objects.filter(nope="x")
+        list(Term.objects.filter(nope="x"))
 
 
 def test_queryset_count_matches_len(fresh_backend):
@@ -367,14 +367,14 @@ def test_filter_combines_simple_and_spanning_kwargs(fresh_backend):
 def test_filter_unknown_segment_on_path_raises(fresh_backend):
     Term = _lookup_term_model("LookupBadSegment")
     with pytest.raises(ValueError):
-        Term.objects.filter(broader__no_such_attr="x")
+        list(Term.objects.filter(broader__no_such_attr="x"))
 
 
 def test_filter_nonterminal_segment_must_be_objectproperty(fresh_backend):
     """`title` is a DataProperty; using it as a non-terminal hop must fail."""
     Term = _lookup_term_model("LookupNonTerm")
     with pytest.raises(ValueError):
-        Term.objects.filter(title__broader="x")
+        list(Term.objects.filter(title__broader="x"))
 
 
 def test_filter_simple_single_segment_still_works(fresh_backend):
@@ -390,7 +390,7 @@ def test_filter_simple_single_segment_still_works(fresh_backend):
 def test_filter_first_segment_must_exist_on_model(fresh_backend):
     Term = _lookup_term_model("LookupBadFirst")
     with pytest.raises(ValueError):
-        Term.objects.filter(no_such_attr__title="x")
+        list(Term.objects.filter(no_such_attr__title="x"))
 
 
 # -- lookup suffixes --------------------------------------------------------
@@ -527,3 +527,333 @@ def test_filter_in_with_non_iterable_raises(fresh_backend):
     Term = _suffix_term_model("SfxInNonIter")
     with pytest.raises(TypeError):
         list(Term.objects.filter(count__in=42))
+
+
+# -- ordering + slicing ----------------------------------------------------
+
+def _ordering_term_model(name):
+    from djangordf import DataProperty, RDFModel
+
+    return type(
+        name,
+        (RDFModel,),
+        {
+            "title": DataProperty(
+                predicate=URIRef("http://example.org/title"),
+            ),
+            "count": DataProperty(
+                predicate=URIRef("http://example.org/count"),
+                datatype=XSD.integer,
+            ),
+        },
+    )
+
+
+def test_slice_returns_first_n_items(fresh_backend):
+    Term = _ordering_term_model("OrdSliceN")
+    for i in range(5):
+        Term.objects.create(title=f"T{i}", count=i)
+    items = list(Term.objects.all().order_by("count")[:3])
+    assert [t.count for t in items] == [0, 1, 2]
+
+
+def test_slice_with_offset_returns_window(fresh_backend):
+    Term = _ordering_term_model("OrdSliceWin")
+    for i in range(5):
+        Term.objects.create(title=f"T{i}", count=i)
+    items = list(Term.objects.all().order_by("count")[2:4])
+    assert [t.count for t in items] == [2, 3]
+
+
+def test_index_returns_single_item(fresh_backend):
+    Term = _ordering_term_model("OrdIdx")
+    for i in range(3):
+        Term.objects.create(title=f"T{i}", count=i)
+    item = Term.objects.all().order_by("count")[1]
+    assert item.count == 1
+
+
+def test_index_out_of_range_raises_index_error(fresh_backend):
+    Term = _ordering_term_model("OrdIdxOOR")
+    Term.objects.create(title="only", count=1)
+    with pytest.raises(IndexError):
+        Term.objects.all()[5]
+
+
+def test_negative_index_raises(fresh_backend):
+    Term = _ordering_term_model("OrdIdxNeg")
+    Term.objects.create(title="x", count=1)
+    with pytest.raises(IndexError):
+        Term.objects.all()[-1]
+
+
+def test_negative_slice_start_or_stop_raises(fresh_backend):
+    Term = _ordering_term_model("OrdSliceNeg")
+    Term.objects.create(title="x", count=1)
+    with pytest.raises(IndexError):
+        Term.objects.all()[-1:]
+    with pytest.raises(IndexError):
+        Term.objects.all()[:-1]
+
+
+def test_slice_step_raises(fresh_backend):
+    Term = _ordering_term_model("OrdSliceStep")
+    Term.objects.create(title="x", count=1)
+    with pytest.raises(TypeError):
+        Term.objects.all()[::2]
+
+
+def test_order_by_ascending(fresh_backend):
+    Term = _ordering_term_model("OrdAsc")
+    Term.objects.create(title="c", count=3)
+    Term.objects.create(title="a", count=1)
+    Term.objects.create(title="b", count=2)
+    titles = [t.title for t in Term.objects.all().order_by("title")]
+    assert titles == ["a", "b", "c"]
+
+
+def test_order_by_descending(fresh_backend):
+    Term = _ordering_term_model("OrdDesc")
+    Term.objects.create(title="c", count=3)
+    Term.objects.create(title="a", count=1)
+    Term.objects.create(title="b", count=2)
+    titles = [t.title for t in Term.objects.all().order_by("-title")]
+    assert titles == ["c", "b", "a"]
+
+
+def test_order_by_multiple_fields(fresh_backend):
+    Term = _ordering_term_model("OrdMulti")
+    Term.objects.create(title="a", count=2)
+    Term.objects.create(title="a", count=1)
+    Term.objects.create(title="b", count=1)
+    rows = [
+        (t.title, t.count)
+        for t in Term.objects.all().order_by("title", "-count")
+    ]
+    assert rows == [("a", 2), ("a", 1), ("b", 1)]
+
+
+def test_order_by_clears_when_called_with_no_args(fresh_backend):
+    Term = _ordering_term_model("OrdClear")
+    Term.objects.create(title="b", count=2)
+    Term.objects.create(title="a", count=1)
+    qs = Term.objects.all().order_by("title").order_by()
+    assert "ORDER BY" not in qs._build_subject_sparql()
+
+
+def test_order_by_unknown_attribute_raises_on_iteration(fresh_backend):
+    Term = _ordering_term_model("OrdUnknown")
+    Term.objects.create(title="x", count=1)
+    qs = Term.objects.all().order_by("not_a_real_attr")
+    with pytest.raises(ValueError):
+        list(qs)
+
+
+def test_slice_composes_with_prior_slice(fresh_backend):
+    Term = _ordering_term_model("OrdSliceChain")
+    for i in range(10):
+        Term.objects.create(title=f"T{i:02d}", count=i)
+    inner = Term.objects.all().order_by("count")[2:8]
+    outer = inner[1:4]
+    counts = [t.count for t in outer]
+    assert counts == [3, 4, 5]
+
+
+# -- regex / isnull / datetime suffixes ------------------------------------
+
+def _regex_term_model(name):
+    from djangordf import DataProperty, RDFModel
+
+    return type(
+        name,
+        (RDFModel,),
+        {
+            "title": DataProperty(
+                predicate=URIRef("http://example.org/title"),
+            ),
+            "count": DataProperty(
+                predicate=URIRef("http://example.org/count"),
+                datatype=XSD.integer,
+            ),
+            "born": DataProperty(
+                predicate=URIRef("http://example.org/born"),
+                datatype=XSD.dateTime,
+            ),
+        },
+    )
+
+
+def test_filter_regex_matches(fresh_backend):
+    Term = _regex_term_model("SfxRegex")
+    Term.objects.create(title="Roman")
+    Term.objects.create(title="Romance")
+    Term.objects.create(title="Buch")
+    matches = sorted(
+        t.title for t in Term.objects.filter(title__regex="^Rom.*$")
+    )
+    assert matches == ["Roman", "Romance"]
+
+
+def test_filter_iregex_matches_case_insensitive(fresh_backend):
+    Term = _regex_term_model("SfxIRegex")
+    Term.objects.create(title="ROMAN")
+    Term.objects.create(title="roman")
+    Term.objects.create(title="Buch")
+    matches = sorted(
+        t.title for t in Term.objects.filter(title__iregex="^rom.*$")
+    )
+    assert matches == ["ROMAN", "roman"]
+
+
+def test_filter_isnull_true_matches_subjects_without_predicate(fresh_backend):
+    Term = _regex_term_model("SfxIsnullTrue")
+    Term.objects.create(title="HasTitle")
+    Term.objects.create(count=42)
+    matches = list(Term.objects.filter(title__isnull=True))
+    assert len(matches) == 1
+    assert matches[0].count == 42
+
+
+def test_filter_isnull_false_matches_subjects_with_predicate(fresh_backend):
+    Term = _regex_term_model("SfxIsnullFalse")
+    Term.objects.create(title="HasTitle")
+    Term.objects.create(count=42)
+    matches = list(Term.objects.filter(title__isnull=False))
+    assert len(matches) == 1
+    assert matches[0].title == "HasTitle"
+
+
+def test_filter_isnull_with_reverse_property(fresh_backend):
+    """`__isnull` on a reverse property: True ⇒ no triple points back."""
+    from djangordf import DataProperty, ObjectProperty, RDFModel
+
+    class IsnullBook(RDFModel):
+        title = DataProperty(
+            predicate=URIRef("http://example.org/title"),
+        )
+        author = ObjectProperty(
+            "IsnullAuthor",
+            predicate=URIRef("http://example.org/author"),
+        )
+
+        class Meta:
+            class_iri = "http://example.org/Book"
+
+    class IsnullAuthor(RDFModel):
+        books = ObjectProperty(
+            IsnullBook,
+            predicate=URIRef("http://example.org/author"),
+            many=True,
+            reverse=True,
+        )
+
+        class Meta:
+            class_iri = "http://example.org/Author"
+
+    childless = IsnullAuthor.objects.create()
+    parent = IsnullAuthor.objects.create()
+    IsnullBook.objects.create(title="hers", author=parent)
+
+    no_books = list(IsnullAuthor.objects.filter(books__isnull=True))
+    with_books = list(IsnullAuthor.objects.filter(books__isnull=False))
+    assert [a.iri for a in no_books] == [URIRef(childless.iri)]
+    assert [a.iri for a in with_books] == [URIRef(parent.iri)]
+
+
+def test_filter_year_month_day(fresh_backend):
+    from datetime import datetime
+
+    Term = _regex_term_model("SfxDate")
+    Term.objects.create(title="A", born=datetime(2024, 6, 15, 9, 30, 45))
+    Term.objects.create(title="B", born=datetime(2024, 7, 15, 9, 30, 45))
+    Term.objects.create(title="C", born=datetime(2023, 6, 15, 9, 30, 45))
+
+    by_year = sorted(t.title for t in Term.objects.filter(born__year=2024))
+    by_month = sorted(t.title for t in Term.objects.filter(born__month=6))
+    by_day = sorted(t.title for t in Term.objects.filter(born__day=15))
+    assert by_year == ["A", "B"]
+    assert by_month == ["A", "C"]
+    assert by_day == ["A", "B", "C"]
+
+
+def test_filter_hour_minute_second(fresh_backend):
+    from datetime import datetime
+
+    Term = _regex_term_model("SfxTime")
+    Term.objects.create(title="A", born=datetime(2024, 6, 15, 9, 30, 45))
+    Term.objects.create(title="B", born=datetime(2024, 6, 15, 10, 30, 45))
+    Term.objects.create(title="C", born=datetime(2024, 6, 15, 9, 31, 45))
+
+    by_hour = sorted(t.title for t in Term.objects.filter(born__hour=9))
+    by_minute = sorted(t.title for t in Term.objects.filter(born__minute=30))
+    by_second = sorted(t.title for t in Term.objects.filter(born__second=45))
+    assert by_hour == ["A", "C"]
+    assert by_minute == ["A", "B"]
+    assert by_second == ["A", "B", "C"]
+
+
+def test_filter_property_named_year_not_peeled(fresh_backend):
+    """A model with an attribute literally called ``year`` must not
+    have its name stolen by the suffix peeler."""
+    from djangordf import DataProperty, RDFModel
+
+    class TermWithYearAttr(RDFModel):
+        year = DataProperty(
+            predicate=URIRef("http://example.org/year"),
+            datatype=XSD.integer,
+        )
+
+    TermWithYearAttr.objects.create(year=1984)
+    TermWithYearAttr.objects.create(year=2024)
+    matches = [t.year for t in TermWithYearAttr.objects.filter(year=1984)]
+    assert matches == [1984]
+
+
+def test_filter_extra_suffix_composes_with_cross_class_span(fresh_backend):
+    from djangordf import DataProperty, ObjectProperty, RDFModel
+
+    class TermXSfx(RDFModel):
+        title = DataProperty(
+            predicate=URIRef("http://example.org/title"),
+        )
+        broader = ObjectProperty("self", many=True)
+
+    parent = TermXSfx.objects.create(title="parent_Buch")
+    TermXSfx.objects.create(title="ChildA", broader=[parent])
+    other = TermXSfx.objects.create(title="not relevant")
+    TermXSfx.objects.create(title="ChildB", broader=[other])
+
+    matches = sorted(
+        t.title for t in TermXSfx.objects.filter(
+            broader__title__iregex="^parent_"
+        )
+    )
+    assert matches == ["ChildA"]
+
+
+def test_filter_extra_suffix_composes_with_q(fresh_backend):
+    from djangordf import Q
+
+    Term = _regex_term_model("SfxQ")
+    Term.objects.create(title="cats", count=1)
+    Term.objects.create(title="DOGS", count=2)
+    Term.objects.create(title="birds", count=3)
+
+    matches = sorted(
+        t.title for t in Term.objects.filter(
+            Q(title__iregex="^c") | Q(title__regex="^DOGS$")
+        )
+    )
+    assert matches == ["DOGS", "cats"]
+
+
+def test_order_by_chains_with_filter_and_slice(fresh_backend):
+    Term = _ordering_term_model("OrdComposed")
+    for i in range(6):
+        Term.objects.create(title=f"T{i}", count=i)
+    qs = (
+        Term.objects.filter(count__gte=2)
+        .order_by("-count")[:2]
+    )
+    counts = [t.count for t in qs]
+    assert counts == [5, 4]

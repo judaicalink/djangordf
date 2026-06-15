@@ -92,7 +92,11 @@ class RDFModelMeta(type):
         # convention predicate when none was supplied explicitly.
         for attr, prop in properties.items():
             prop.contribute_to_class(attr, owner_class=cls)
-            if prop.predicate is None and attr in DEFAULT_PREDICATES:
+            if (
+                prop.predicate is None
+                and not getattr(prop, "reverse", False)
+                and attr in DEFAULT_PREDICATES
+            ):
                 prop.predicate = DEFAULT_PREDICATES[attr]
 
         if name != "RDFModel":

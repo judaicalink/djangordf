@@ -7,7 +7,7 @@ property's ``from_rdf``. ``all`` and ``filter`` return a lazy
 ``RDFQuerySet`` that only hits the store on iteration or terminal
 methods (``len``, ``count``, ``first``).
 """
-from typing import List, Tuple
+from typing import List
 
 from rdflib import BNode, Literal, URIRef
 
@@ -24,6 +24,10 @@ _KNOWN_LOOKUP_SUFFIXES = frozenset({
     "endswith", "iendswith",
     "in",
     "gt", "gte", "lt", "lte",
+    "regex", "iregex",
+    "isnull",
+    "year", "month", "day",
+    "hour", "minute", "second",
 })
 
 
@@ -44,6 +48,25 @@ def _term(term):
 def _format_triple(triple):
     s, p, o = triple
     return f"{_term(s)} {_term(p)} {_term(o)} ."
+
+
+def _render_sparql_term(term) -> str:
+    """Render a SPARQL term. ``?var`` strings pass through verbatim;
+    anything else is rdflib-serialised via ``.n3()``."""
+    if isinstance(term, str) and term.startswith("?"):
+        return term
+    return term.n3()
+
+
+def _render_triple(s, p, o) -> str:
+    """Render a triple pattern. Predicate is always rendered as an
+    angle-bracketed IRI; subject and object go through
+    :func:`_render_sparql_term`."""
+    return (
+        f"{_render_sparql_term(s)} "
+        f"<{p}> "
+        f"{_render_sparql_term(o)} ."
+    )
 
 
 class RDFManager:
@@ -159,16 +182,31 @@ class RDFManager:
     def get(self, iri):
         iri = URIRef(iri)
         graph_iri = self.model_class._meta.graph_iri
-        sparql = (
+        forward_sparql = (
             f"CONSTRUCT {{ <{iri}> ?p ?o }} WHERE {{ "
             f"GRAPH <{graph_iri}> {{ <{iri}> ?p ?o }} }}"
         )
-        graph = self.backend.query(sparql)
+        graph = self.backend.query(forward_sparql)
         if len(graph) == 0:
             raise self.model_class.DoesNotExist(str(iri))
+        if self._has_reverse_properties():
+            reverse_sparql = (
+                f"CONSTRUCT {{ ?s ?p <{iri}> }} WHERE {{ "
+                f"GRAPH <{graph_iri}> {{ ?s ?p <{iri}> }} }}"
+            )
+            reverse_graph = self.backend.query(reverse_sparql)
+            for triple in reverse_graph:
+                graph.add(triple)
         instance = self.model_class(iri=iri)
         self._hydrate(instance, graph, iri)
         return instance
+
+    def _has_reverse_properties(self) -> bool:
+        from .properties import ObjectProperty
+        return any(
+            isinstance(p, ObjectProperty) and p.reverse
+            for p in getattr(self.model_class, "_properties", {}).values()
+        )
 
     def _hydrate(self, instance, graph, subject) -> None:
         for attr, prop in self.model_class._properties.items():
@@ -177,53 +215,116 @@ class RDFManager:
             setattr(instance, attr, prop.from_rdf(graph, subject))
 
     def all(self) -> "RDFQuerySet":
-        return RDFQuerySet(self, [])
+        return RDFQuerySet(self)
 
-    def filter(self, **kwargs) -> "RDFQuerySet":
-        triple_patterns: List[Tuple[object, URIRef, object]] = []
-        filter_clauses: List[str] = []
-        var_counter = 0
-        for key, value in kwargs.items():
-            raw_segments = key.split("__")
-            path_segments, suffix = _peel_lookup_suffix(raw_segments)
-            current_var: object = "?s"
-            current_cls = self.model_class
-            for i, segment in enumerate(path_segments):
-                prop = self._resolve_segment(current_cls, segment)
-                if i == len(path_segments) - 1:
-                    if suffix == "exact":
-                        triple_patterns.append(
-                            (
-                                current_var,
-                                prop.predicate,
-                                self._object_term(prop, value),
-                            )
+    def filter(self, *q_args, **kwargs) -> "RDFQuerySet":
+        from .query import Q
+        if not q_args and not kwargs:
+            return RDFQuerySet(self)
+        top = Q(*q_args, **kwargs)
+        return RDFQuerySet(self, q=top)
+
+    def _emit_leaf(self, key, value, current_var, current_cls, counter):
+        """Render one ``(key, value)`` filter leaf as a list of SPARQL
+        pattern strings (one per triple / FILTER). ``counter`` is a
+        single-element list so callers share the same monotonic
+        variable-name source across the entire Q walk."""
+        raw_segments = key.split("__")
+        path_segments, suffix = _peel_lookup_suffix(raw_segments)
+        lines: List[str] = []
+        for i, segment in enumerate(path_segments):
+            prop = self._resolve_segment(current_cls, segment)
+            is_reverse = getattr(prop, "reverse", False)
+            if i == len(path_segments) - 1:
+                if suffix == "exact":
+                    obj_term = self._object_term(prop, value)
+                    if is_reverse:
+                        lines.append(
+                            _render_triple(obj_term, prop.predicate, current_var)
                         )
                     else:
-                        var_counter += 1
-                        terminal_var = f"?v{var_counter}"
-                        triple_patterns.append(
-                            (current_var, prop.predicate, terminal_var)
+                        lines.append(
+                            _render_triple(current_var, prop.predicate, obj_term)
                         )
-                        filter_clauses.append(
-                            self._build_filter_clause(
-                                terminal_var, suffix, value, prop
-                            )
+                elif suffix == "isnull":
+                    counter[0] += 1
+                    anon_var = f"?v{counter[0]}"
+                    if is_reverse:
+                        triple = _render_triple(
+                            anon_var, prop.predicate, current_var,
                         )
-                    break
-                from .properties import ObjectProperty
-                if not isinstance(prop, ObjectProperty):
-                    raise ValueError(
-                        f"non-terminal lookup segment {segment!r} on "
-                        f"{current_cls.__name__} is not an ObjectProperty; "
-                        f"cannot span"
+                    else:
+                        triple = _render_triple(
+                            current_var, prop.predicate, anon_var,
+                        )
+                    if bool(value):
+                        lines.append(
+                            f"FILTER NOT EXISTS {{ {triple} }}"
+                        )
+                    else:
+                        lines.append(triple)
+                else:
+                    counter[0] += 1
+                    terminal_var = f"?v{counter[0]}"
+                    if is_reverse:
+                        lines.append(
+                            _render_triple(terminal_var, prop.predicate, current_var)
+                        )
+                    else:
+                        lines.append(
+                            _render_triple(current_var, prop.predicate, terminal_var)
+                        )
+                    lines.append(
+                        f"FILTER("
+                        f"{self._build_filter_clause(terminal_var, suffix, value, prop)}"
+                        f")"
                     )
-                var_counter += 1
-                next_var = f"?v{var_counter}"
-                triple_patterns.append((current_var, prop.predicate, next_var))
-                current_var = next_var
-                current_cls = prop.target_class
-        return RDFQuerySet(self, triple_patterns, filter_clauses)
+                break
+            from .properties import ObjectProperty
+            if not isinstance(prop, ObjectProperty):
+                raise ValueError(
+                    f"non-terminal lookup segment {segment!r} on "
+                    f"{current_cls.__name__} is not an ObjectProperty; "
+                    f"cannot span"
+                )
+            counter[0] += 1
+            next_var = f"?v{counter[0]}"
+            if is_reverse:
+                lines.append(
+                    _render_triple(next_var, prop.predicate, current_var)
+                )
+            else:
+                lines.append(
+                    _render_triple(current_var, prop.predicate, next_var)
+                )
+            current_var = next_var
+            current_cls = prop.target_class
+        return lines
+
+    def _emit_q(self, q, current_var, current_cls, counter) -> str:
+        """Recursively render a ``Q`` tree as a SPARQL fragment string."""
+        from .query import Q
+        child_fragments: List[str] = []
+        for child in q.children:
+            if isinstance(child, Q):
+                child_fragments.append(
+                    self._emit_q(child, current_var, current_cls, counter)
+                )
+            else:
+                key, value = child
+                lines = self._emit_leaf(
+                    key, value, current_var, current_cls, counter
+                )
+                child_fragments.append(" ".join(lines))
+        if q.connector == Q.OR:
+            body = " UNION ".join(
+                f"{{ {f} }}" for f in child_fragments if f
+            )
+        else:
+            body = " ".join(f for f in child_fragments if f)
+        if q.negated:
+            return f"FILTER NOT EXISTS {{ {body} }}"
+        return body
 
     def _build_filter_clause(self, var, suffix, value, prop) -> str:
         """Render the SPARQL FILTER expression for a suffix lookup
@@ -266,6 +367,20 @@ class RDFManager:
                 self._object_term(prop, item).n3() for item in items
             )
             return f"{var} IN ({rendered})"
+        if suffix == "regex":
+            return f"REGEX(STR({var}), {Literal(str(value)).n3()})"
+        if suffix == "iregex":
+            return f"REGEX(STR({var}), {Literal(str(value)).n3()}, \"i\")"
+        if suffix in {"year", "month", "day", "hour", "minute", "second"}:
+            fn = {
+                "year": "YEAR",
+                "month": "MONTH",
+                "day": "DAY",
+                "hour": "HOURS",
+                "minute": "MINUTES",
+                "second": "SECONDS",
+            }[suffix]
+            return f"{fn}({var}) = {Literal(int(value)).n3()}"
         op = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[suffix]
         return f"{var} {op} {self._object_term(prop, value).n3()}"
 
@@ -313,52 +428,98 @@ class RDFManager:
 class RDFQuerySet:
     """Lazy queryset over an ``RDFManager``.
 
-    Materialises on iteration / ``len`` / ``count`` / ``first`` by
-    issuing ``SELECT DISTINCT ?s`` to enumerate matching subjects, then
-    calling ``manager.get(s)`` per subject. Each subject is therefore
-    fetched in a separate CONSTRUCT — clear and correct for the walking
-    skeleton; an N+1 collapse can be a later optimisation.
+    Materialises on iteration / ``len`` / ``count`` / ``first`` /
+    ``__getitem__(int)`` by issuing ``SELECT DISTINCT ?s`` to
+    enumerate matching subjects, then calling ``manager.get(s)`` per
+    subject. ``order_by`` and slicing are both chainable and lazy —
+    they return new querysets carrying ``ORDER BY`` / ``LIMIT`` /
+    ``OFFSET`` state that the SPARQL builder honours on next
+    materialisation.
     """
 
-    def __init__(self, manager: RDFManager, triple_patterns, filter_clauses=()):
+    def __init__(
+        self,
+        manager: RDFManager,
+        q=None,
+        order_by: tuple = (),
+        limit=None,
+        offset=None,
+    ):
         self._manager = manager
-        self._triple_patterns = list(triple_patterns)
-        self._filter_clauses = list(filter_clauses)
+        self._q = q
+        self._order_by = tuple(order_by)
+        self._limit = limit
+        self._offset = offset
         self._results_cache = None
+
+    def _clone(self, **overrides):
+        defaults = dict(
+            q=self._q,
+            order_by=self._order_by,
+            limit=self._limit,
+            offset=self._offset,
+        )
+        defaults.update(overrides)
+        return RDFQuerySet(self._manager, **defaults)
+
+    # -- chainable surface --------------------------------------------------
+
+    def order_by(self, *fields):
+        return self._clone(order_by=tuple(fields))
+
+    # -- SPARQL construction ------------------------------------------------
 
     def _build_subject_sparql(self) -> str:
         model = self._manager.model_class
         graph_iri = model._meta.graph_iri
         class_iri = model._meta.class_iri
-        patterns = [f"?s a <{class_iri}> ."]
-        for subject, predicate, obj_term in self._triple_patterns:
-            patterns.append(
-                f"{self._render_term(subject)} "
-                f"<{predicate}> "
-                f"{self._render_term(obj_term)} ."
-            )
-        for expr in self._filter_clauses:
-            patterns.append(f"FILTER({expr})")
-        body = " ".join(patterns)
-        return (
-            f"SELECT DISTINCT ?s WHERE {{ "
-            f"GRAPH <{graph_iri}> {{ {body} }} }}"
-        )
+        counter = [0]
 
-    @staticmethod
-    def _render_term(term) -> str:
-        """Render a SPARQL term. ``?var`` strings pass through verbatim;
-        anything else is rdflib-serialised via ``.n3()``."""
-        if isinstance(term, str) and term.startswith("?"):
-            return term
-        return term.n3()
+        parts = [f"?s a <{class_iri}> ."]
+        if self._q is not None:
+            fragment = self._manager._emit_q(
+                self._q, "?s", model, counter,
+            )
+            if fragment:
+                parts.append(fragment)
+
+        select_vars = ["?s"]
+        order_tokens = []
+        for field in self._order_by:
+            descending = field.startswith("-")
+            attr = field.lstrip("-")
+            prop = self._manager._resolve_segment(model, attr)
+            counter[0] += 1
+            ord_var = f"?ord_{counter[0]}"
+            parts.append(
+                _render_triple("?s", prop.predicate, ord_var)
+            )
+            select_vars.append(ord_var)
+            order_tokens.append(
+                f"DESC({ord_var})" if descending else ord_var
+            )
+
+        body = " ".join(parts)
+        select = "SELECT DISTINCT " + " ".join(select_vars)
+        sparql = (
+            f"{select} WHERE {{ GRAPH <{graph_iri}> {{ {body} }} }}"
+        )
+        if order_tokens:
+            sparql += " ORDER BY " + " ".join(order_tokens)
+        if self._limit is not None:
+            sparql += f" LIMIT {self._limit}"
+        if self._offset is not None:
+            sparql += f" OFFSET {self._offset}"
+        return sparql
+
+    # -- materialisation ----------------------------------------------------
 
     def _fetch(self):
         if self._results_cache is not None:
             return self._results_cache
         sparql = self._build_subject_sparql()
         result = self._manager.backend.query(sparql)
-        subjects = [row[0] for row in result]
+        subjects = list(dict.fromkeys(row[0] for row in result))
         self._results_cache = [self._manager.get(s) for s in subjects]
         return self._results_cache
 
@@ -372,5 +533,49 @@ class RDFQuerySet:
         return len(self)
 
     def first(self):
-        items = self._fetch()
+        items = list(self._clone(limit=1))
         return items[0] if items else None
+
+    # -- slicing / indexing -------------------------------------------------
+
+    def __getitem__(self, key):
+        if isinstance(key, slice):
+            if key.step is not None:
+                raise TypeError(
+                    "RDFQuerySet does not support step in slicing"
+                )
+            start = key.start or 0
+            stop = key.stop
+            if start < 0 or (stop is not None and stop < 0):
+                raise IndexError(
+                    "RDFQuerySet does not support negative indices"
+                )
+            new_offset = (self._offset or 0) + start
+            if stop is None:
+                new_limit = self._limit
+            else:
+                window = stop - start
+                if window < 0:
+                    window = 0
+                if self._limit is not None:
+                    remaining = max(self._limit - start, 0)
+                    new_limit = min(window, remaining)
+                else:
+                    new_limit = window
+            return self._clone(
+                limit=new_limit,
+                offset=new_offset if new_offset else None,
+            )
+        if isinstance(key, int):
+            if key < 0:
+                raise IndexError(
+                    "RDFQuerySet does not support negative indices"
+                )
+            items = list(self[key:key + 1])
+            if not items:
+                raise IndexError(key)
+            return items[0]
+        raise TypeError(
+            f"RDFQuerySet indices must be int or slice, not "
+            f"{type(key).__name__}"
+        )
