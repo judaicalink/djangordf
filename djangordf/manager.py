@@ -90,6 +90,9 @@ class RDFManager:
         return instance
 
     def save(self, instance) -> None:
+        from .signals import post_save, pre_save
+        pre_save.send(sender=type(instance), instance=instance)
+
         graph_iri = instance._meta.graph_iri
         iri = instance.iri
 
@@ -112,8 +115,12 @@ class RDFManager:
             f"INSERT DATA {{ GRAPH <{graph_iri}> {{ {body} }} }}"
         )
         self.backend.update(" ;".join(statements))
+        post_save.send(sender=type(instance), instance=instance)
 
     def delete(self, instance) -> None:
+        from .signals import post_delete, pre_delete
+        pre_delete.send(sender=type(instance), instance=instance)
+
         graph_iri = instance._meta.graph_iri
         iri = instance.iri
         statements = [
@@ -127,6 +134,99 @@ class RDFManager:
                 f"WHERE {{ ?s <{inv_pred}> <{iri}> }}"
             )
         self.backend.update(" ;".join(statements))
+        post_delete.send(sender=type(instance), instance=instance)
+
+    # -- bulk operations ----------------------------------------------------
+
+    def bulk_create(self, instances):
+        """Persist many instances in one SPARQL update.
+
+        Mints IRIs for any instance whose ``iri`` is ``None``. Issues
+        a single ``INSERT DATA`` block; **does not** fire signals and
+        **does not** emit inverse-property mirror triples (see #60).
+        Intended for new objects only — re-running it on existing
+        IRIs would add duplicate triples. Use :meth:`bulk_update`
+        when persisting changes to existing instances.
+        """
+        import uuid
+        instances = list(instances)
+        if not instances:
+            return instances
+        all_triples = []
+        graph_iri = None
+        for instance in instances:
+            if instance.iri is None:
+                instance.iri = URIRef(
+                    f"{instance._meta.namespace}{uuid.uuid4().hex}"
+                )
+            if graph_iri is None:
+                graph_iri = instance._meta.graph_iri
+            all_triples.extend(instance._to_triples())
+        body = "\n".join(_format_triple(t) for t in all_triples)
+        self.backend.update(
+            f"INSERT DATA {{ GRAPH <{graph_iri}> {{ {body} }} }}"
+        )
+        return instances
+
+    def bulk_update(self, instances):
+        """Re-persist many existing instances in one SPARQL update.
+
+        Each instance must already carry an ``iri``. Issues one
+        multi-statement update with ``DELETE { <iri> ?p ?o } WHERE
+        { <iri> ?p ?o } ; INSERT DATA { ... }`` per instance. **Does
+        not** fire signals and **does not** emit inverse-property
+        mirror triples (see #60).
+        """
+        instances = list(instances)
+        if not instances:
+            return instances
+        statements = []
+        graph_iri = None
+        for instance in instances:
+            if instance.iri is None:
+                raise ValueError(
+                    "bulk_update requires each instance to carry an "
+                    "iri; use bulk_create for new instances"
+                )
+            if graph_iri is None:
+                graph_iri = instance._meta.graph_iri
+            iri = instance.iri
+            statements.append(
+                f"WITH <{graph_iri}> "
+                f"DELETE {{ <{iri}> ?p ?o }} WHERE {{ <{iri}> ?p ?o }}"
+            )
+            triples = list(instance._to_triples())
+            body = "\n".join(_format_triple(t) for t in triples)
+            statements.append(
+                f"INSERT DATA {{ GRAPH <{graph_iri}> {{ {body} }} }}"
+            )
+        self.backend.update(" ;".join(statements))
+        return instances
+
+    def bulk_delete(self, instances):
+        """Strip many instances in one SPARQL update.
+
+        Issues one multi-statement update with one ``DELETE WHERE``
+        per IRI. **Does not** fire signals and **does not** strip
+        inverse-property mirror triples (see #60).
+        """
+        instances = list(instances)
+        if not instances:
+            return 0
+        statements = []
+        for instance in instances:
+            if instance.iri is None:
+                raise ValueError(
+                    "bulk_delete requires each instance to carry an iri"
+                )
+            graph_iri = instance._meta.graph_iri
+            iri = instance.iri
+            statements.append(
+                f"WITH <{graph_iri}> "
+                f"DELETE {{ <{iri}> ?p ?o }} WHERE {{ <{iri}> ?p ?o }}"
+            )
+        self.backend.update(" ;".join(statements))
+        return len(instances)
 
     def _inverse_properties(self, instance):
         """Yield ``(prop, inverse_predicate)`` for every ObjectProperty

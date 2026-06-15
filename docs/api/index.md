@@ -15,5 +15,6 @@ namespaces
 skos
 ontology
 loaders
+signals
 backends
 ```

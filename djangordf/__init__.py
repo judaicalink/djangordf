@@ -7,6 +7,7 @@ from .models import RDFModel
 from .namespaces import LangString, NamespaceRegistry, registry
 from .ontology import generate_ontology
 from .query import Q
+from .signals import post_delete, post_save, pre_delete, pre_save
 from .properties import (
     DataProperty,
     LangStringProperty,
@@ -35,5 +36,9 @@ __all__ = [
     "get_backend",
     "load_external_concept",
     "load_skos",
+    "post_delete",
+    "post_save",
+    "pre_delete",
+    "pre_save",
     "registry",
 ]

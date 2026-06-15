@@ -364,3 +364,47 @@ Each call returns the number of triples written. The loader accepts
 HTTP/HTTPS URLs, filesystem paths, and in-memory `rdflib.Graph`
 instances. Without an explicit `backend=`, the same process-wide
 backend that `RDFManager` uses receives the writes.
+
+## Bulk operations and signals
+
+`RDFManager` exposes three bulk write paths that issue a single
+SPARQL update for many instances at once, and four
+`django.dispatch.Signal` instances for hooking into the single-
+instance persistence path.
+
+```python
+from djangordf import (
+    pre_save, post_save, pre_delete, post_delete,
+)
+
+# Bulk create — one INSERT DATA for the whole batch.
+Term.objects.bulk_create([
+    Term(title="A"),
+    Term(title="B"),
+    Term(title="C"),
+])
+
+# Bulk update — one multi-statement SPARQL update.
+a.title = "new-A"
+b.title = "new-B"
+Term.objects.bulk_update([a, b])
+
+# Bulk delete.
+Term.objects.bulk_delete([a, b])
+
+# Signals.
+def log_save(sender, instance, **kwargs):
+    print(f"saved {instance.iri}")
+
+post_save.connect(log_save, sender=Term)
+```
+
+Two limitations matched to Django's conventions:
+
+- **Bulk operations do not fire signals.** If you need
+  `pre_save` / `post_save` semantics for every instance, use the
+  single-instance `save()` path.
+- **Bulk operations do not emit `ObjectProperty(inverse=...)` mirror
+  triples.** Models that declare an inverse should keep using
+  per-instance `save()` for now; the bulk path treats the supplied
+  triples as authoritative.
