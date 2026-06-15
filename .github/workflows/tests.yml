@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       fuseki:
-        image: stain/jena-fuseki:5.5.0
+        image: stain/jena-fuseki:5.1.0
         ports:
           - 3030:3030
         env:
