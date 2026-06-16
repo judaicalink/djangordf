@@ -1,0 +1,17 @@
+{% extends "djangordf/admin/base.html" %}
+{% block title %}
+{% if is_add %}Add {{ model_name }}{% else %}Edit {{ model_name }}{% endif %}
+{% endblock %}
+{% block content %}
+<h1>
+{% if is_add %}Add new {{ model_name }}
+{% else %}Edit {{ model_name }} — <span class="iri">{{ instance.iri }}</span>
+{% endif %}
+</h1>
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <p><button type="submit">Save</button>
+    <a href="{% url 'djangordf_admin:changelist' model_name=model_name %}">Cancel</a></p>
+</form>
+{% endblock %}

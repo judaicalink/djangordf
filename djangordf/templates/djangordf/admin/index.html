@@ -1,0 +1,14 @@
+{% extends "djangordf/admin/base.html" %}
+{% block title %}djangordf admin — index{% endblock %}
+{% block content %}
+<h1>Registered models</h1>
+{% if registered %}
+<ul>
+{% for name, admin in registered.items %}
+    <li><a href="{% url 'djangordf_admin:changelist' model_name=name %}">{{ name }}</a></li>
+{% endfor %}
+</ul>
+{% else %}
+<p>No models registered.</p>
+{% endif %}
+{% endblock %}

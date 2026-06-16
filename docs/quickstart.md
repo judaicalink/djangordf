@@ -465,3 +465,48 @@ class Bookmark(models.Model):
 
 A runnable end-to-end version of the first pattern lives at
 `examples/hybrid_mode.py`.
+
+## Django admin for RDFModel
+
+`djangordf.admin` provides a Django-admin-style UI for `RDFModel`
+classes. Because `RDFModel` is not a `django.db.models.Model`, it
+runs on a separate `RDFAdminSite` with its own URL routes and form
+generation, not through `django.contrib.admin.site.register()`.
+
+Register a model in your app's `admin.py`:
+
+```python
+from djangordf.admin import rdf_admin_site, RDFModelAdmin
+from myapp.models import Term
+
+
+@rdf_admin_site.register(Term)
+class TermAdmin(RDFModelAdmin):
+    list_display = ("iri", "pref_label")
+    fields = ("pref_label", "broader")
+```
+
+Mount the site in your project's URL conf:
+
+```python
+from django.urls import path
+from djangordf.admin import rdf_admin_site
+
+urlpatterns = [
+    path("admin/rdf/", rdf_admin_site.urls),
+    # ... rest of your project's URLs
+]
+```
+
+The site then exposes a list view (`/admin/rdf/<Model>/`), add view
+(`/admin/rdf/<Model>/add/`), change view
+(`/admin/rdf/<Model>/<iri>/`), and delete confirmation
+(`/admin/rdf/<Model>/<iri>/delete/`). Forms are auto-generated from
+each model's declared properties (`DataProperty`, `LangStringProperty`,
+`URIProperty`, `ObjectProperty`). `many=True` properties render as a
+`Textarea` with one value per line; `LangStringProperty` uses the
+`"value@lang"` shape; `ObjectProperty` takes the target IRI as text.
+
+The site does **not** enforce authentication on its own — wrap its
+URLs in your project's auth middleware or place them inside an
+admin-only URL prefix.

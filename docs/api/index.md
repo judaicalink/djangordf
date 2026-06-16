@@ -16,5 +16,6 @@ skos
 ontology
 loaders
 signals
+admin
 backends
 ```
