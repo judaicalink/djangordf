@@ -28,6 +28,7 @@ def test_find_packages_includes_every_subpackage():
     )
     assert discovered == {
         "djangordf",
+        "djangordf.admin",
         "djangordf.backends",
         "djangordf.management",
         "djangordf.management.commands",

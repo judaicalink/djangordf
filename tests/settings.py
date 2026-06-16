@@ -30,3 +30,21 @@ DJANGORDF_BACKEND = {
 }
 DJANGORDF_DEFAULT_NAMESPACE = "http://example.org/d/"
 DJANGORDF_DEFAULT_GRAPH = "http://example.org/g"
+
+ROOT_URLCONF = "tests.urls"
+
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "APP_DIRS": True,
+        "DIRS": [],
+        "OPTIONS": {
+            "context_processors": [],
+        },
+    }
+]
+
+MIDDLEWARE = [
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+]

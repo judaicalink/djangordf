@@ -331,3 +331,182 @@ Programmatic access goes through {func}`djangordf.ontology.generate_ontology`,
 which returns an `rdflib.Graph` containing the `owl:Class`,
 `rdfs:subClassOf`, `rdfs:domain`/`rdfs:range`, and cardinality
 restriction triples derived from your `RDFModel` declarations.
+
+## Importing external SKOS vocabularies
+
+Read-only RDF dumps from GND, AAT, Wikidata, or any other source can
+be ingested into the configured triple store via
+{func}`djangordf.load_skos`. By default the triples land in a separate
+named graph (`urn:djangordf:external` unless
+`DJANGORDF_EXTERNAL_GRAPH` overrides it) so external data stays
+isolated from `RDFModel`-managed data.
+
+```python
+from djangordf import load_skos, load_external_concept
+
+# From a local file (format inferred from the extension).
+n = load_skos("vocab.ttl")
+
+# From a URL (HTTP GET with content negotiation).
+n = load_skos("https://example.org/skos/buch.ttl")
+
+# Dereference a single concept IRI directly.
+n = load_external_concept("https://d-nb.info/gnd/4001577-9")
+
+# Override the format when the extension lies.
+n = load_skos("vocab.bin", format="turtle")
+
+# Direct an explicit named graph (overrides DJANGORDF_EXTERNAL_GRAPH).
+n = load_skos("vocab.ttl", graph="http://example.org/imported")
+```
+
+Each call returns the number of triples written. The loader accepts
+HTTP/HTTPS URLs, filesystem paths, and in-memory `rdflib.Graph`
+instances. Without an explicit `backend=`, the same process-wide
+backend that `RDFManager` uses receives the writes.
+
+## Bulk operations and signals
+
+`RDFManager` exposes three bulk write paths that issue a single
+SPARQL update for many instances at once, and four
+`django.dispatch.Signal` instances for hooking into the single-
+instance persistence path.
+
+```python
+from djangordf import (
+    pre_save, post_save, pre_delete, post_delete,
+)
+
+# Bulk create — one INSERT DATA for the whole batch.
+Term.objects.bulk_create([
+    Term(title="A"),
+    Term(title="B"),
+    Term(title="C"),
+])
+
+# Bulk update — one multi-statement SPARQL update.
+a.title = "new-A"
+b.title = "new-B"
+Term.objects.bulk_update([a, b])
+
+# Bulk delete.
+Term.objects.bulk_delete([a, b])
+
+# Signals.
+def log_save(sender, instance, **kwargs):
+    print(f"saved {instance.iri}")
+
+post_save.connect(log_save, sender=Term)
+```
+
+Two limitations matched to Django's conventions:
+
+- **Bulk operations do not fire signals.** If you need
+  `pre_save` / `post_save` semantics for every instance, use the
+  single-instance `save()` path.
+- **Bulk operations do not emit `ObjectProperty(inverse=...)` mirror
+  triples.** Models that declare an inverse should keep using
+  per-instance `save()` for now; the bulk path treats the supplied
+  triples as authoritative.
+
+## Hybrid mode: relational auth alongside RDF data
+
+`RDFModel` and `django.db.models.Model` coexist freely. The two layers
+talk to different storage backends — the relational ORM to your
+configured `DATABASES`, djangordf to the configured
+`DJANGORDF_BACKEND` — so adding `djangordf` to `INSTALLED_APPS`
+alongside `django.contrib.auth` and `django.contrib.contenttypes` is
+the default configuration, not a special mode.
+
+The interesting question is how to link them. The recommended
+pattern encodes the relational primary key as a synthetic IRI under
+a documented namespace:
+
+```python
+from rdflib import URIRef
+from djangordf import LangStringProperty, RDFModel, URIProperty
+from djangordf.namespaces import LangString
+
+
+USER_NS = "urn:djangordf:user:"
+
+
+class Term(RDFModel):
+    pref_label = LangStringProperty(many=True)
+    created_by = URIProperty(
+        predicate=URIRef("http://purl.org/dc/terms/creator"),
+    )
+
+
+# Persist the relational pk as an IRI on the RDF side.
+term = Term.objects.create(
+    pref_label=[LangString("Buch", "de")],
+    created_by=URIRef(f"{USER_NS}{request.user.pk}"),
+)
+
+# Round-trip and recover the pk.
+reloaded = Term.objects.get(term.iri)
+recovered_pk = int(str(reloaded.created_by).removeprefix(USER_NS))
+user = User.objects.get(pk=recovered_pk)
+```
+
+For the inverse direction — a relational model that stores the IRI of
+the RDF concept it points at — use a plain `URLField` or `TextField`:
+
+```python
+class Bookmark(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    concept_iri = models.URLField(max_length=500)
+
+    def concept(self):
+        from djangordf import RDFModel
+        return Term.objects.get(self.concept_iri)
+```
+
+A runnable end-to-end version of the first pattern lives at
+`examples/hybrid_mode.py`.
+
+## Django admin for RDFModel
+
+`djangordf.admin` provides a Django-admin-style UI for `RDFModel`
+classes. Because `RDFModel` is not a `django.db.models.Model`, it
+runs on a separate `RDFAdminSite` with its own URL routes and form
+generation, not through `django.contrib.admin.site.register()`.
+
+Register a model in your app's `admin.py`:
+
+```python
+from djangordf.admin import rdf_admin_site, RDFModelAdmin
+from myapp.models import Term
+
+
+@rdf_admin_site.register(Term)
+class TermAdmin(RDFModelAdmin):
+    list_display = ("iri", "pref_label")
+    fields = ("pref_label", "broader")
+```
+
+Mount the site in your project's URL conf:
+
+```python
+from django.urls import path
+from djangordf.admin import rdf_admin_site
+
+urlpatterns = [
+    path("admin/rdf/", rdf_admin_site.urls),
+    # ... rest of your project's URLs
+]
+```
+
+The site then exposes a list view (`/admin/rdf/<Model>/`), add view
+(`/admin/rdf/<Model>/add/`), change view
+(`/admin/rdf/<Model>/<iri>/`), and delete confirmation
+(`/admin/rdf/<Model>/<iri>/delete/`). Forms are auto-generated from
+each model's declared properties (`DataProperty`, `LangStringProperty`,
+`URIProperty`, `ObjectProperty`). `many=True` properties render as a
+`Textarea` with one value per line; `LangStringProperty` uses the
+`"value@lang"` shape; `ObjectProperty` takes the target IRI as text.
+
+The site does **not** enforce authentication on its own — wrap its
+URLs in your project's auth middleware or place them inside an
+admin-only URL prefix.
