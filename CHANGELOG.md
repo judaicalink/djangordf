@@ -5,6 +5,46 @@ All notable changes to djangordf will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-06-16
+
+Three items from the §10 walkthrough: bulk operations + lifecycle
+signals, a documented hybrid-mode pattern, and a Django-style admin
+for `RDFModel` classes.
+
+### Added
+- `RDFManager.bulk_create` / `bulk_update` / `bulk_delete` issue one
+  SPARQL update per batch instead of one per instance (#60).
+- `djangordf.signals` ships `pre_save`, `post_save`, `pre_delete`,
+  `post_delete` as `django.dispatch.Signal` instances, fired around
+  single-instance `save` / `delete`. Bulk operations deliberately
+  skip the signals, matching Django's `bulk_create` convention.
+- `examples/hybrid_mode.py` runnable demo showing how to link an
+  `RDFModel` instance to a relational primary key via a synthetic
+  IRI (`urn:djangordf:user:<pk>`), plus a subprocess acceptance
+  test and a Quickstart subsection (#62).
+- `djangordf.admin` package — `RDFAdminSite`, `RDFModelAdmin`, and
+  the auto-generated `RDFModelForm` (#64). Mount the site under
+  `rdf_admin_site.urls` to get list / add / change / delete views
+  for any registered `RDFModel`. Each declared property maps to a
+  Django form field (`DataProperty(int)` → `IntegerField`,
+  `LangStringProperty` → `"value@lang"` `CharField`, `URIProperty`
+  → `URLField`, `ObjectProperty` → IRI `CharField`,
+  `many=True` → `Textarea`).
+- `setup.py` + new `MANIFEST.in` bundle the admin HTML templates
+  into the built wheel.
+
+### Notes
+- Bulk operations do not emit `ObjectProperty(inverse=...)` mirror
+  triples. Models that declare an inverse should keep using
+  per-instance `save()` for now; the bulk path treats the supplied
+  triples as authoritative.
+- The admin does not enforce authentication — wrap its URL prefix
+  in your project's auth middleware or place it inside an
+  admin-only URL block.
+- Test settings now wire `TEMPLATES`, `ROOT_URLCONF`, and
+  `MIDDLEWARE` so the Django test client can exercise the admin
+  views.
+
 ## [0.8.0] - 2026-06-15
 
 Continuation of the §10 walkthrough. Six items since 0.7.0: reverse

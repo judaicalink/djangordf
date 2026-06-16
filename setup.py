@@ -7,7 +7,7 @@ setup(
     package_data={
         "djangordf": ["templates/djangordf/admin/*.html"],
     },
-    version='0.8.0',
+    version='0.9.0',
     description='A RDF library for Django models',
     classifiers=[
         "Programming Language :: Python :: 3",
