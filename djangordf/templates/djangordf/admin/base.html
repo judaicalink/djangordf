@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>{% block title %}djangordf admin{% endblock %}</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        nav a { margin-right: 1em; }
+        table { border-collapse: collapse; }
+        th, td { padding: 0.3em 0.6em; border-bottom: 1px solid #ddd; text-align: left; }
+        form p { margin: 0.5em 0; }
+        .actions a, .actions button { margin-right: 0.5em; }
+        .iri { font-family: monospace; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+<nav><a href="{% url 'djangordf_admin:index' %}">djangordf admin</a></nav>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>
