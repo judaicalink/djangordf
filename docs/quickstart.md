@@ -408,3 +408,60 @@ Two limitations matched to Django's conventions:
   triples.** Models that declare an inverse should keep using
   per-instance `save()` for now; the bulk path treats the supplied
   triples as authoritative.
+
+## Hybrid mode: relational auth alongside RDF data
+
+`RDFModel` and `django.db.models.Model` coexist freely. The two layers
+talk to different storage backends — the relational ORM to your
+configured `DATABASES`, djangordf to the configured
+`DJANGORDF_BACKEND` — so adding `djangordf` to `INSTALLED_APPS`
+alongside `django.contrib.auth` and `django.contrib.contenttypes` is
+the default configuration, not a special mode.
+
+The interesting question is how to link them. The recommended
+pattern encodes the relational primary key as a synthetic IRI under
+a documented namespace:
+
+```python
+from rdflib import URIRef
+from djangordf import LangStringProperty, RDFModel, URIProperty
+from djangordf.namespaces import LangString
+
+
+USER_NS = "urn:djangordf:user:"
+
+
+class Term(RDFModel):
+    pref_label = LangStringProperty(many=True)
+    created_by = URIProperty(
+        predicate=URIRef("http://purl.org/dc/terms/creator"),
+    )
+
+
+# Persist the relational pk as an IRI on the RDF side.
+term = Term.objects.create(
+    pref_label=[LangString("Buch", "de")],
+    created_by=URIRef(f"{USER_NS}{request.user.pk}"),
+)
+
+# Round-trip and recover the pk.
+reloaded = Term.objects.get(term.iri)
+recovered_pk = int(str(reloaded.created_by).removeprefix(USER_NS))
+user = User.objects.get(pk=recovered_pk)
+```
+
+For the inverse direction — a relational model that stores the IRI of
+the RDF concept it points at — use a plain `URLField` or `TextField`:
+
+```python
+class Bookmark(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    concept_iri = models.URLField(max_length=500)
+
+    def concept(self):
+        from djangordf import RDFModel
+        return Term.objects.get(self.concept_iri)
+```
+
+A runnable end-to-end version of the first pattern lives at
+`examples/hybrid_mode.py`.
