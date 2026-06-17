@@ -510,3 +510,160 @@ each model's declared properties (`DataProperty`, `LangStringProperty`,
 The site does **not** enforce authentication on its own — wrap its
 URLs in your project's auth middleware or place them inside an
 admin-only URL prefix.
+
+## RDF schema migrations
+
+`djangordf.schema` provides a Django-migrations-style framework for
+evolving the RDF schema and data over time. Each change is a small
+Python file under a configurable module
+(`DJANGORDF_MIGRATIONS_MODULE`, default `rdf_migrations`); a
+management command discovers and applies pending migrations in
+dependency order; applied state lives in the triple store itself
+under `urn:djangordf:migrations`.
+
+Generate a blank template:
+
+```bash
+python manage.py makemigration_rdf rename_pref
+# Created rdf_migrations/0001_rename_pref.py
+```
+
+Edit it:
+
+```python
+# rdf_migrations/0001_rename_pref.py
+from rdflib import URIRef
+from djangordf.schema import (
+    Migration, RenamePredicate, CreateClass, AddPropertyDeclaration,
+)
+
+
+class Migration(Migration):
+    name = "0001_rename_pref"
+    dependencies = []
+    operations = [
+        CreateClass(
+            URIRef("http://example.org/Book"),
+            label="Book",
+        ),
+        AddPropertyDeclaration(
+            URIRef("http://example.org/title"),
+            kind="datatype",
+            domain=URIRef("http://example.org/Book"),
+        ),
+        RenamePredicate(
+            old=URIRef("http://example.org/oldTitle"),
+            new=URIRef("http://example.org/title"),
+        ),
+    ]
+```
+
+Apply:
+
+```bash
+python manage.py migrate_rdf
+# Applied 0001_rename_pref
+
+python manage.py migrate_rdf --list
+# Applied:
+#   [X] 0001_rename_pref
+# Pending:
+#   (none)
+```
+
+Built-in operations:
+
+- `RunSPARQL(sparql)` — escape hatch.
+- `CreateClass(class_iri, label=, comment=)` — appends `owl:Class`
+  to `DJANGORDF_ONTOLOGY_GRAPH` (default `urn:djangordf:ontology`).
+- `DeleteClass(class_iri)` — strips every triple whose subject is
+  that IRI from the ontology graph.
+- `AddPropertyDeclaration(predicate, kind=, domain=, range=)` —
+  declares the predicate (`kind="datatype"` or `"object"`) plus
+  optional `rdfs:domain` / `rdfs:range`.
+- `RenamePredicate(old, new, graph=)` — rewrites every
+  `(?s, old, ?o)` triple to `(?s, new, ?o)`.
+
+This first release is forward-only; rollback / `reverse()` paths
+will land as a follow-up. Auto-diffing the current `RDFModel`
+declarations into a migration is also out of scope —
+`makemigration_rdf` writes a blank template that you fill in
+manually.
+
+## RDF schema migrations
+
+`djangordf.schema` provides a Django-migrations-style framework for
+evolving the RDF schema and data over time. Each change is a small
+Python file under a configurable module
+(`DJANGORDF_MIGRATIONS_MODULE`, default `rdf_migrations`); a
+management command discovers and applies pending migrations in
+dependency order; applied state lives in the triple store itself
+under `urn:djangordf:migrations`.
+
+Generate a blank template:
+
+```bash
+python manage.py makemigration_rdf rename_pref
+# Created rdf_migrations/0001_rename_pref.py
+```
+
+Edit it:
+
+```python
+# rdf_migrations/0001_rename_pref.py
+from rdflib import URIRef
+from djangordf.schema import (
+    Migration, RenamePredicate, CreateClass, AddPropertyDeclaration,
+)
+
+
+class Migration(Migration):
+    name = "0001_rename_pref"
+    dependencies = []
+    operations = [
+        CreateClass(
+            URIRef("http://example.org/Book"),
+            label="Book",
+        ),
+        AddPropertyDeclaration(
+            URIRef("http://example.org/title"),
+            kind="datatype",
+            domain=URIRef("http://example.org/Book"),
+        ),
+        RenamePredicate(
+            old=URIRef("http://example.org/oldTitle"),
+            new=URIRef("http://example.org/title"),
+        ),
+    ]
+```
+
+Apply:
+
+```bash
+python manage.py migrate_rdf
+# Applied 0001_rename_pref
+
+python manage.py migrate_rdf --list
+# Applied:
+#   [X] 0001_rename_pref
+# Pending:
+#   (none)
+```
+
+Built-in operations:
+
+- `RunSPARQL(sparql)` — escape hatch.
+- `CreateClass(class_iri, label=, comment=)` — appends `owl:Class`
+  to `DJANGORDF_ONTOLOGY_GRAPH` (default `urn:djangordf:ontology`).
+- `DeleteClass(class_iri)` — strips every triple whose subject is
+  that IRI from the ontology graph.
+- `AddPropertyDeclaration(predicate, kind=, domain=, range=)` —
+  declares the predicate (`kind="datatype"` or `"object"`) plus
+  optional `rdfs:domain` / `rdfs:range`.
+- `RenamePredicate(old, new, graph=)` — rewrites every
+  `(?s, old, ?o)` triple to `(?s, new, ?o)`.
+
+This first release is forward-only; rollback / `reverse()` paths
+will land as a follow-up. Auto-diffing the current `RDFModel`
+declarations into a migration is also out of scope — `makemigration_rdf`
+writes a blank template that you fill in manually.

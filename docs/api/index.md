@@ -17,5 +17,6 @@ ontology
 loaders
 signals
 admin
+schema
 backends
 ```
