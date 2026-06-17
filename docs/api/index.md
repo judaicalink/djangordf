@@ -18,5 +18,6 @@ loaders
 signals
 admin
 schema
+reasoning
 backends
 ```

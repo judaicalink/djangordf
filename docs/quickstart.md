@@ -590,6 +590,57 @@ declarations into a migration is also out of scope —
 `makemigration_rdf` writes a blank template that you fill in
 manually.
 
+## Reasoning
+
+`djangordf.reasoning` materialises inferred triples into the backend.
+Pick a reasoner via `settings.DJANGORDF_REASONER` (dotted import path)
+or pass one to {func}`djangordf.reasoning.materialize`.
+
+```python
+from djangordf.reasoning import (
+    CompositeReasoner, RDFSReasoner, SKOSReasoner, materialize,
+)
+
+# Run RDFS + SKOS rules in place over the default graph.
+materialize(
+    CompositeReasoner(RDFSReasoner(), SKOSReasoner()),
+    source_graph="urn:djangordf:default",
+)
+```
+
+Or via the management command, which honours
+`DJANGORDF_REASONER`:
+
+```python
+DJANGORDF_REASONER = "djangordf.reasoning.SKOSReasoner"
+```
+
+```bash
+python manage.py reason --source "urn:djangordf:default"
+# Added 17 inferred triple(s).
+
+python manage.py reason --dry-run
+# [dry-run] Would add 17 inferred triple(s).
+```
+
+Built-in reasoners:
+
+- `RDFSReasoner` — `subClassOf` transitivity and type propagation,
+  `subPropertyOf` propagation, `domain` / `range` inference.
+- `SKOSReasoner` — promotes `skos:broader` / `skos:narrower` to their
+  transitive variants and closes those under transitivity; enforces
+  `skos:exactMatch` symmetry.
+- `CompositeReasoner(*reasoners)` — runs several reasoners inside one
+  fixpoint envelope.
+- `OWLRLReasoner` — optional wrapper around the third-party `owlrl`
+  package (lazy-imported; raises a clear error if the package is not
+  installed).
+
+Each reasoner runs its rules in a fixpoint loop with a configurable
+`max_iterations` budget. The default writes inferences back into the
+source graph (in-place materialisation); pass `target_graph=` to keep
+the source pristine.
+
 ## RDF schema migrations
 
 `djangordf.schema` provides a Django-migrations-style framework for
