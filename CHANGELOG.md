@@ -5,6 +5,49 @@ All notable changes to djangordf will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-06-17
+
+The full design spec is shipped. With this release the entire §10
+follow-up pool is closed: reverse lookups, Q-objects with AND/OR/NOT,
+slicing / ordering / limit, the full lookup-suffix grammar (incl.
+regex, isnull, datetime parts), Fuseki integration in default CI,
+external SKOS vocabulary imports, bulk operations + lifecycle
+signals, hybrid-relational-mode documentation, a Django-style admin,
+forward RDF schema migrations, and a pluggable RDFS / SKOS / OWL-RL
+reasoner layer.
+
+This is the project's first stable release. The public API is now
+covered by SemVer: future 1.x releases will remain
+backwards-compatible; breaking changes will land as a 2.0.
+
+### Added
+- `djangordf.schema` package — Django-migrations-style framework
+  for evolving the RDF schema. Five operation types
+  (`RunSPARQL`, `CreateClass`, `DeleteClass`,
+  `AddPropertyDeclaration`, `RenamePredicate`), a
+  `MigrationRecorder` that lives in the triple store itself, and
+  an `Executor` that topologically sorts on `dependencies`. Two
+  management commands: `migrate_rdf [--list]` and
+  `makemigration_rdf <name>` (#67, PR #68).
+- `djangordf.reasoning` package — pluggable reasoner layer.
+  `RDFSReasoner` (subClassOf transitivity, type propagation,
+  subPropertyOf, domain/range), `SKOSReasoner` (broader/narrower
+  transitive closure, exactMatch symmetry),
+  `CompositeReasoner(*reasoners)`, and an optional
+  `OWLRLReasoner` wrapping the third-party `owlrl` package
+  (lazy-imported; clear `ImproperlyConfigured` when missing).
+  Programmatic `materialize(reasoner=None, ...)` plus the
+  `python manage.py reason [--dry-run]` command. Picks reasoner
+  from `settings.DJANGORDF_REASONER` (dotted path) when no
+  argument is supplied (#69, PR #70).
+
+### Notes
+- Schema migrations are forward-only in this first cut; rollback
+  (`reverse()`) and automatic diffing of `RDFModel` declarations
+  into migrations are deferred to later releases.
+- Reasoners run client-side via SPARQL `INSERT-WHERE` rules to a
+  fixpoint. Server-side reasoner integration is out of scope.
+
 ## [0.9.0] - 2026-06-16
 
 Three items from the §10 walkthrough: bulk operations + lifecycle
