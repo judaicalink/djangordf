@@ -314,6 +314,39 @@ class RDFManager:
                 continue
             setattr(instance, attr, prop.from_rdf(graph, subject))
 
+    def _bulk_hydrate(self, subjects):
+        """Hydrate many instances in two queries (or three when the
+        model declares reverse properties): one forward CONSTRUCT
+        scoped by ``FILTER(?s IN (...))`` and, if relevant, one
+        reverse CONSTRUCT scoped by ``FILTER(?o IN (...))``. Replaces
+        the N+1 ``manager.get(s)`` loop with a single bulk pull."""
+        if not subjects:
+            return []
+        graph_iri = self.model_class._meta.graph_iri
+        iri_list = ", ".join(f"<{s}>" for s in subjects)
+
+        forward_sparql = (
+            f"CONSTRUCT {{ ?s ?p ?o }} WHERE {{ GRAPH <{graph_iri}> {{ "
+            f"?s ?p ?o . FILTER(?s IN ({iri_list})) }} }}"
+        )
+        graph = self.backend.query(forward_sparql)
+
+        if self._has_reverse_properties():
+            reverse_sparql = (
+                f"CONSTRUCT {{ ?s ?p ?o }} WHERE {{ GRAPH <{graph_iri}> {{ "
+                f"?s ?p ?o . FILTER(?o IN ({iri_list})) }} }}"
+            )
+            reverse_graph = self.backend.query(reverse_sparql)
+            for triple in reverse_graph:
+                graph.add(triple)
+
+        instances = []
+        for subject in subjects:
+            instance = self.model_class(iri=URIRef(subject))
+            self._hydrate(instance, graph, URIRef(subject))
+            instances.append(instance)
+        return instances
+
     def all(self) -> "RDFQuerySet":
         return RDFQuerySet(self)
 
@@ -620,7 +653,7 @@ class RDFQuerySet:
         sparql = self._build_subject_sparql()
         result = self._manager.backend.query(sparql)
         subjects = list(dict.fromkeys(row[0] for row in result))
-        self._results_cache = [self._manager.get(s) for s in subjects]
+        self._results_cache = self._manager._bulk_hydrate(subjects)
         return self._results_cache
 
     def __iter__(self):
